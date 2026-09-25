@@ -1,0 +1,21 @@
+{
+  "name": "antonio-digital-agent",
+  "version": "4.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "worker": "node src/worker.js",
+    "dev": "node --watch src/server.js",
+    "check": "node --check src/server.js && node --check src/worker.js && node --check src/db.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "2.57.0",
+    "better-sqlite3": "11.10.1",
+    "dotenv": "16.6.1",
+    "express": "5.1.0",
+    "googleapis": "144.0.0",
+    "openai": "5.12.0",
+    "pg": "8.16.3"
+  }
+}
