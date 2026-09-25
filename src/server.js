@@ -113,7 +113,7 @@ async function runAgent({conversationId,input,userId,taskId=null}){
   }catch(e){await db.prepare("UPDATE agent_runs SET status='failed',error=?,finished_at=? WHERE id=?").run(e.message,now(),runId);await audit(userId,'agent_error',{runId,error:e.message});throw e}
 }
 
-app.get('/api/health',(req,res)=>res.json({ok:true,version:'4.1.0',model:MODEL,openai:Boolean(openai),auth:authEnabled,cloud_db:cloudDb,integrations:integrationState()}));
+app.get('/api/health',(req,res)=>res.json({ok:true,version:'5.0.0',model:MODEL,openai:Boolean(openai),auth:authEnabled,cloud_db:cloudDb,integrations:integrationState()}));
 app.get('/api/ready',async(req,res)=>{try{await db.prepare('SELECT 1 AS ok').get();if(!openai)return res.status(503).json({ok:false,error:'OpenAI is not configured'});res.json({ok:true})}catch(e){res.status(503).json({ok:false,error:e.message})}});
 app.use('/api',rate);
 app.post('/api/auth/signup',async(req,res)=>{if(!supabase)return res.status(400).json({error:'Supabase Auth is not configured'});const email=String(req.body?.email||'').trim(),password=String(req.body?.password||'');if(!email||password.length<8)return res.status(400).json({error:'valid email and password (8+ chars) required'});const {data,error}=await supabase.auth.signUp({email,password});if(error)return res.status(400).json({error:error.message});if(data.session)setCookie(res,data.session.access_token);res.json({user:data.user,session:Boolean(data.session)})});
@@ -146,10 +146,12 @@ app.post('/api/schedules/:id/toggle',async(req,res)=>{const s=await db.prepare('
 app.post('/api/chat',async(req,res)=>{const text=String(req.body?.message||'').trim();if(!text)return res.status(400).json({error:'message required'});if(text.length>20000)return res.status(413).json({error:'message too long'});let cid=req.body?.conversation_id;if(!cid){cid=id();const t=now();await db.prepare('INSERT INTO conversations(id,user_id,title,created_at,updated_at) VALUES(?,?,?,?,?)').run(cid,req.user.id,'محادثة جديدة',t,t)}else if(!await db.prepare('SELECT id FROM conversations WHERE id=? AND user_id=?').get(cid,req.user.id))return res.status(404).json({error:'conversation not found'});await db.prepare('INSERT INTO messages(id,conversation_id,user_id,role,content,created_at) VALUES(?,?,?,?,?,?)').run(id(),cid,req.user.id,'user',text,now());try{const ans=await runAgent({conversationId:cid,input:text,userId:req.user.id});await db.prepare('INSERT INTO messages(id,conversation_id,user_id,role,content,created_at) VALUES(?,?,?,?,?,?)').run(id(),cid,req.user.id,'assistant',ans,now());await db.prepare('UPDATE conversations SET updated_at=? WHERE id=? AND user_id=?').run(now(),cid,req.user.id);res.json({conversation_id:cid,answer:ans})}catch(e){res.status(500).json({error:'agent execution failed'})}});
 app.get('/api/conversations/:id/messages',async(req,res)=>res.json(await db.prepare('SELECT role,content,created_at FROM messages WHERE conversation_id=? AND user_id=? ORDER BY created_at').all(req.params.id,req.user.id)));
 
-export { runAgent };
+export { runAgent, app, auth };
+await import('./v5.js').then(m=>m.registerV5({app,auth,db,now,id}));
+
 if (process.argv[1] && new URL(`file://${process.argv[1]}`).href === import.meta.url) {
   const port=Number(process.env.PORT||3000);
-  const server=app.listen(port,()=>console.log(`Antonio Agent 4.1 running on ${port}`));
+  const server=app.listen(port,()=>console.log(`Antonio Agent 5.0 running on ${port}`));
   server.requestTimeout=Number(process.env.REQUEST_TIMEOUT_MS||120000);
   server.headersTimeout=Number(process.env.HEADERS_TIMEOUT_MS||30000);
   server.keepAliveTimeout=5000;
