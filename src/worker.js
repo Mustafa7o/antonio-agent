@@ -1,7 +1,7 @@
 import 'dotenv/config';
 
 const intervalMs=Math.max(5000,Number(process.env.WORKER_INTERVAL_MS||15000));
-const target=String(process.env.WORKER_TARGET_URL||'').replace(/\\/$/,'');
+const target=String(process.env.WORKER_TARGET_URL||'').replace(/\/$/,'');
 const secret=String(process.env.WORKER_SECRET||'');
 if(!target)throw new Error('WORKER_TARGET_URL is required');
 if(!secret)throw new Error('WORKER_SECRET is required');
