@@ -30,6 +30,7 @@ function revealSecret(value){
   if(!TOKEN_KEY)throw new Error('TOKEN_ENCRYPTION_KEY is required');
   const [,v,ivS,tagS,dataS]=value.split(':'); const key=crypto.createHash('sha256').update(TOKEN_KEY).digest(); const d=crypto.createDecipheriv('aes-256-gcm',key,Buffer.from(ivS,'base64url')); d.setAuthTag(Buffer.from(tagS,'base64url')); return Buffer.concat([d.update(Buffer.from(dataS,'base64url')),d.final()]).toString('utf8');
 }
+async function integrationSecret(userId,provider){const row=await db.prepare('SELECT token_json FROM integration_tokens WHERE user_id=? AND provider=?').get(userId,provider);if(!row?.token_json)return null;try{return JSON.parse(revealSecret(row.token_json))}catch{return null}}
 
 const RATE = Math.max(1, Number(process.env.RATE_LIMIT_PER_MINUTE || 60));
 const buckets = new Map();
@@ -89,11 +90,11 @@ async function tool(name,a,userId,runId,{skipApproval=false,taskId=null}={}){
   if(name==='schedule_agent'){const x=id();await db.prepare('INSERT INTO schedules(id,user_id,task_id,prompt,run_at,repeat_minutes,enabled,last_run_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)').run(x,userId,taskId,a.prompt,a.run_at,a.repeat_minutes||null,1,null,t,t);return{schedule_id:x,enabled:true}}
   if(name==='request_approval')return requireApproval(userId,a.action,a.payload,a.task_id||taskId);
   if(approvalMap[name]&&!skipApproval){const gate=await requireApproval(userId,approvalMap[name],a,taskId);if(gate.approval_required)return gate}
-  if(name==='send_email'){const tok=await db.prepare('SELECT token_json FROM integration_tokens WHERE user_id=? AND provider=?').get(userId,'google');if(!tok)return{error:'Google account not connected'};return gmailSend(JSON.parse(revealSecret(tok.token_json)),a)}
-  if(name==='list_email'){const tok=await db.prepare('SELECT token_json FROM integration_tokens WHERE user_id=? AND provider=?').get(userId,'google');if(!tok)return{error:'Google account not connected'};return gmailList(JSON.parse(revealSecret(tok.token_json)),a.query||'')}
-  if(name==='create_calendar_event'){const tok=await db.prepare('SELECT token_json FROM integration_tokens WHERE user_id=? AND provider=?').get(userId,'google');if(!tok)return{error:'Google account not connected'};return calendarCreate(JSON.parse(revealSecret(tok.token_json)),a)}
-  if(name==='send_telegram')return telegramSend(a.chat_id,a.text);
-  if(name==='send_whatsapp')return whatsappSend(a.to,a.text);
+  if(name==='send_email'){const tok=await db.prepare('SELECT token_json FROM integration_tokens WHERE user_id=? AND provider=?').get(userId,'google');if(!tok)return{error:'Google account not connected'};const cfg=await integrationSecret(userId,'google_oauth');return gmailSend(JSON.parse(revealSecret(tok.token_json)),a,cfg||{})}
+  if(name==='list_email'){const tok=await db.prepare('SELECT token_json FROM integration_tokens WHERE user_id=? AND provider=?').get(userId,'google');if(!tok)return{error:'Google account not connected'};const cfg=await integrationSecret(userId,'google_oauth');return gmailList(JSON.parse(revealSecret(tok.token_json)),a.query||'',cfg||{})}
+  if(name==='create_calendar_event'){const tok=await db.prepare('SELECT token_json FROM integration_tokens WHERE user_id=? AND provider=?').get(userId,'google');if(!tok)return{error:'Google account not connected'};const cfg=await integrationSecret(userId,'google_oauth');return calendarCreate(JSON.parse(revealSecret(tok.token_json)),a,cfg||{})}
+  if(name==='send_telegram'){const cfg=await integrationSecret(userId,'telegram_config');return telegramSend(a.chat_id,a.text,cfg||{})}
+  if(name==='send_whatsapp'){const cfg=await integrationSecret(userId,'whatsapp_config');return whatsappSend(a.to,a.text,cfg||{})}
   throw new Error(`unknown tool: ${name}`);
 }
 
@@ -122,8 +123,8 @@ app.get('/api/auth/me',async(req,res)=>{try{const u=await verifyAccessToken(getT
 app.post('/api/auth/logout',async(req,res)=>{res.setHeader('Set-Cookie','antonio_session=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax');res.json({ok:true})});
 function setCookie(res,t){const secure=process.env.COOKIE_SECURE==='false'?'':' Secure;';const maxAge=Math.max(900,Number(process.env.SESSION_MAX_AGE_SECONDS||3600));res.setHeader('Set-Cookie',`antonio_session=${encodeURIComponent(t)}; Max-Age=${maxAge}; Path=/; HttpOnly; SameSite=Lax;${secure}`)}
 
-app.get('/api/integrations/google/start',auth,async(req,res)=>{if(!process.env.GOOGLE_CLIENT_ID)return res.status(400).json({error:'Google OAuth not configured'});const state=crypto.randomUUID();await db.prepare('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run(`oauth:${state}`,JSON.stringify({userId:req.user.id,expires:Date.now()+600000}));res.redirect(googleAuthUrl(state))});
-app.get('/api/integrations/google/callback',async(req,res)=>{try{const state=String(req.query.state||'');const row=await db.prepare('SELECT value FROM settings WHERE key=?').get(`oauth:${state}`);if(!row)return res.status(400).send('Invalid OAuth state');const meta=JSON.parse(row.value);if(meta.expires<Date.now())return res.status(400).send('OAuth state expired');await db.prepare('DELETE FROM settings WHERE key=?').run(`oauth:${state}`);const tokens=await googleExchange(String(req.query.code||''));await db.prepare('INSERT INTO integration_tokens(id,user_id,provider,access_token,refresh_token,token_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(user_id,provider) DO UPDATE SET access_token=excluded.access_token,refresh_token=integration_tokens.refresh_token,token_json=excluded.token_json,updated_at=excluded.updated_at').run(id(),meta.userId,'google','','',protectSecret(JSON.stringify(tokens)),now(),now());res.redirect('/?google=connected')}catch(e){res.status(400).send('Google OAuth failed')}});
+app.get('/api/integrations/google/start',auth,async(req,res)=>{const cfg=await integrationSecret(req.user.id,'google_oauth');const ready=(cfg?.client_id&&cfg?.client_secret)||(process.env.GOOGLE_CLIENT_ID&&process.env.GOOGLE_CLIENT_SECRET);if(!ready)return res.status(400).json({error:'Google OAuth credentials are not configured in Antonio'});const state=crypto.randomUUID();await db.prepare('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run(`oauth:${state}`,JSON.stringify({userId:req.user.id,expires:Date.now()+600000}));res.redirect(googleAuthUrl(state,cfg||{}))});
+app.get('/api/integrations/google/callback',async(req,res)=>{try{const state=String(req.query.state||'');const row=await db.prepare('SELECT value FROM settings WHERE key=?').get(`oauth:${state}`);if(!row)return res.status(400).send('Invalid OAuth state');const meta=JSON.parse(row.value);if(meta.expires<Date.now())return res.status(400).send('OAuth state expired');await db.prepare('DELETE FROM settings WHERE key=?').run(`oauth:${state}`);const cfg=await integrationSecret(meta.userId,'google_oauth');const tokens=await googleExchange(String(req.query.code||''),cfg||{});await db.prepare('INSERT INTO integration_tokens(id,user_id,provider,access_token,refresh_token,token_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(user_id,provider) DO UPDATE SET access_token=excluded.access_token,refresh_token=integration_tokens.refresh_token,token_json=excluded.token_json,updated_at=excluded.updated_at').run(id(),meta.userId,'google','','',protectSecret(JSON.stringify(tokens)),now(),now());res.redirect('/?google=connected')}catch(e){res.status(400).send('Google OAuth failed')}});
 
 app.use('/api',auth);
 app.get('/api/integrations',(req,res)=>res.json(integrationState()));
@@ -148,7 +149,7 @@ app.post('/api/chat',async(req,res)=>{const text=String(req.body?.message||'').t
 app.get('/api/conversations/:id/messages',async(req,res)=>res.json(await db.prepare('SELECT role,content,created_at FROM messages WHERE conversation_id=? AND user_id=? ORDER BY created_at').all(req.params.id,req.user.id)));
 
 export { runAgent, app, auth };
-await import('./v5.js').then(m=>m.registerV5({app,auth,db,now,id}));
+await import('./v5.js').then(m=>m.registerV5({app,auth,db,now,id,protectSecret}));
 
 if (process.argv[1] && new URL(`file://${process.argv[1]}`).href === import.meta.url) {
   const port=Number(process.env.PORT||3000);
