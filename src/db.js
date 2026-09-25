@@ -31,7 +31,7 @@ let impl;
 if (!cloudDb) {
   throw new Error('DATABASE_URL is required. Antonio 5 uses Supabase/Postgres only.');
 }
-const pool = new Pool({connectionString,options:'-c search_path=antonio,public',max:Number(process.env.DB_POOL_MAX||10),idleTimeoutMillis:30000,connectionTimeoutMillis:10000,ssl:process.env.DB_SSL==='false'?false:{rejectUnauthorized:false}});
+const pool = new Pool({connectionString,options:'-c search_path=antonio,public',max:Number(process.env.DB_POOL_MAX||10),idleTimeoutMillis:30000,connectionTimeoutMillis:10000,ssl:process.env.DB_SSL==='false'?false:{rejectUnauthorized:false},family:process.env.DB_IPV4_ONLY==='true'?4:undefined});
 await pool.query(pgSchema);
 impl = {
   async run(sql,p=[]){const c=convert(sql,p);return pool.query(c.sql,c.params)},
