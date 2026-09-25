@@ -1,4 +1,4 @@
-export function registerV5({app,auth,db,now,id}) {
+export function registerV5({app,auth,db,now,id,protectSecret}) {
   const defaults = {
     display_name:'Antonio',
     language:'ar-IQ',
@@ -29,6 +29,22 @@ export function registerV5({app,auth,db,now,id}) {
     res.json(await readSettings(req.user.id));
   });
 
+  app.get('/api/v5/secrets',auth,async(req,res)=>{
+    const rows=await db.prepare("SELECT provider,updated_at FROM integration_tokens WHERE user_id=? AND provider IN ('google_oauth','telegram_config','whatsapp_config') ORDER BY provider").all(req.user.id);
+    const m=new Map(rows.map(r=>[r.provider,r]));
+    res.json(['google','telegram','whatsapp'].map(p=>({provider:p,configured:m.has(p==='google'?'google_oauth':p+'_config'),updated_at:m.get(p==='google'?'google_oauth':p+'_config')?.updated_at||null})));
+  });
+  app.put('/api/v5/secrets/:provider',auth,async(req,res)=>{
+    const p=String(req.params.provider||'').toLowerCase(),map={google:'google_oauth',telegram:'telegram_config',whatsapp:'whatsapp_config'},dbProvider=map[p];
+    if(!dbProvider)return res.status(400).json({error:'unsupported provider'});
+    const b=req.body||{};let value;
+    if(p==='google'){const client_id=String(b.client_id||'').trim(),client_secret=String(b.client_secret||'').trim(),redirect_uri=String(b.redirect_uri||'https://antonio-production-4e8f.up.railway.app/api/integrations/google/callback').trim();if(!client_id||!client_secret)return res.status(400).json({error:'Google Client ID and Client Secret are required'});value={client_id,client_secret,redirect_uri}}
+    if(p==='telegram'){const bot_token=String(b.bot_token||'').trim();if(!bot_token)return res.status(400).json({error:'Telegram bot token is required'});value={bot_token}}
+    if(p==='whatsapp'){const access_token=String(b.access_token||'').trim(),phone_number_id=String(b.phone_number_id||'').trim(),api_version=String(b.api_version||'v23.0').trim();if(!access_token||!phone_number_id)return res.status(400).json({error:'WhatsApp access token and phone number ID are required'});value={access_token,phone_number_id,api_version}}
+    await db.prepare('INSERT INTO integration_tokens(id,user_id,provider,access_token,refresh_token,token_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(user_id,provider) DO UPDATE SET token_json=excluded.token_json,updated_at=excluded.updated_at').run(id(),req.user.id,dbProvider,'','',protectSecret(JSON.stringify(value)),now(),now());
+    res.json({ok:true,provider:p,configured:true});
+  });
+  app.delete('/api/v5/secrets/:provider',auth,async(req,res)=>{const map={google:'google_oauth',telegram:'telegram_config',whatsapp:'whatsapp_config'},dbProvider=map[String(req.params.provider||'').toLowerCase()];if(!dbProvider)return res.status(400).json({error:'unsupported provider'});await db.prepare('DELETE FROM integration_tokens WHERE user_id=? AND provider=?').run(req.user.id,dbProvider);res.json({ok:true,configured:false})});
   app.get('/api/v5/accounts',auth,async(req,res)=>{
     const rows=await db.prepare('SELECT provider,updated_at FROM integration_tokens WHERE user_id=? ORDER BY provider').all(req.user.id);
     const connected=new Map(rows.map(r=>[r.provider,r]));
