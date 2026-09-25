@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import pg from 'pg';
 const { Pool } = pg;
 
-const rawConnectionString = process.env.DATABASE_URL_POOLER || process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '';
+const rawConnectionString = process.env.DATABASE_URL || process.env.DATABASE_URL_POOLER || process.env.SUPABASE_DB_URL || '';
 let connectionString = rawConnectionString;
 if (process.env.DB_SUPAVISOR_POOLER === 'true' && rawConnectionString) {
   const url = new URL(rawConnectionString);
