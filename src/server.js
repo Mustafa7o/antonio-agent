@@ -78,6 +78,35 @@ async function requireApproval(userId,action,payload,taskId=null){
   return {approval_required:true,approval_id:x,status:'pending'};
 }
 
+let scheduleBusy=false;
+async function runDueSchedules(){
+  if(scheduleBusy)return {ok:true,busy:true};
+  scheduleBusy=true;
+  let executed=0,errors=0;
+  try{
+    const due=await db.prepare("SELECT * FROM schedules WHERE enabled=TRUE AND run_at IS NOT NULL AND run_at<=? ORDER BY run_at LIMIT 20").all(now());
+    for(const x of due){
+      try{
+        const claimed=await db.prepare("UPDATE schedules SET last_run_at=?,run_at=CASE WHEN repeat_minutes IS NOT NULL THEN ? ELSE run_at END,enabled=CASE WHEN repeat_minutes IS NULL THEN FALSE ELSE enabled END,updated_at=? WHERE id=? AND enabled=TRUE AND run_at<=?").run(now(),x.repeat_minutes?new Date(Date.now()+Number(x.repeat_minutes)*60000).toISOString():x.run_at,now(),x.id,now());
+        if(!claimed?.rowCount&&!claimed?.changes)continue;
+        const c=id(),t=now();
+        await db.prepare('INSERT INTO conversations(id,user_id,title,created_at,updated_at) VALUES(?,?,?,?,?)').run(c,x.user_id,'Scheduled run',t,t);
+        await db.prepare('INSERT INTO messages(id,conversation_id,user_id,role,content,created_at) VALUES(?,?,?,?,?,?)').run(id(),c,x.user_id,'user',x.prompt,t);
+        const ans=await runAgent({conversationId:c,input:x.prompt,userId:x.user_id,taskId:x.task_id||null});
+        await db.prepare('INSERT INTO messages(id,conversation_id,user_id,role,content,created_at) VALUES(?,?,?,?,?,?)').run(id(),c,x.user_id,'assistant',ans,now());
+        await audit(x.user_id,'schedule_executed',{scheduleId:x.id});
+        executed++;
+      }catch(e){
+        errors++;
+        await audit(x.user_id,'schedule_error',{scheduleId:x.id,error:e.message});
+      }
+    }
+    return{ok:true,executed,errors};
+  }finally{
+    scheduleBusy=false;
+  }
+}
+
 async function tool(name,a,userId,runId,{skipApproval=false,taskId=null}={}){
   const t=now();
   if(name==='create_task'){const x=id();await db.prepare('INSERT INTO tasks(id,user_id,title,status,priority,goal,result,due_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)').run(x,userId,a.title,'planned',a.priority??5,a.goal,'',a.due_at||null,t,t);return{task_id:x,status:'planned'}}
@@ -116,6 +145,7 @@ async function runAgent({conversationId,input,userId,taskId=null}){
 app.get('/api/health',(req,res)=>res.json({ok:true,version:'4.1.0',model:MODEL,openai:Boolean(openai),auth:authEnabled,cloud_db:cloudDb,integrations:integrationState()}));
 app.get('/api/ready',async(req,res)=>{try{await db.prepare('SELECT 1 AS ok').get();if(!openai)return res.status(503).json({ok:false,error:'OpenAI is not configured'});res.json({ok:true})}catch(e){res.status(503).json({ok:false,error:e.message})}});
 app.use('/api',rate);
+app.post('/api/internal/worker-tick',async(req,res)=>{if(!process.env.WORKER_SECRET||req.get('x-worker-secret')!==process.env.WORKER_SECRET)return res.status(401).json({error:'unauthorized'});try{res.json(await runDueSchedules())}catch(e){res.status(500).json({error:e.message})}});
 app.post('/api/auth/signup',async(req,res)=>{if(!supabase)return res.status(400).json({error:'Supabase Auth is not configured'});const email=String(req.body?.email||'').trim(),password=String(req.body?.password||'');if(!email||password.length<8)return res.status(400).json({error:'valid email and password (8+ chars) required'});const {data,error}=await supabase.auth.signUp({email,password});if(error)return res.status(400).json({error:error.message});if(data.session)setCookie(res,data.session.access_token);res.json({user:data.user,session:Boolean(data.session)})});
 app.post('/api/auth/login',async(req,res)=>{if(!supabase)return res.status(400).json({error:'Supabase Auth is not configured'});const {data,error}=await supabase.auth.signInWithPassword({email:String(req.body?.email||'').trim(),password:String(req.body?.password||'')});if(error)return res.status(401).json({error:error.message});setCookie(res,data.session.access_token);res.json({user:data.user})});
 app.post('/api/auth/logout',(req,res)=>{res.setHeader('Set-Cookie','antonio_session=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax');res.json({ok:true})});
@@ -156,3 +186,4 @@ if (process.argv[1] && new URL(`file://${process.argv[1]}`).href === import.meta
   process.on('SIGTERM',()=>server.close(()=>process.exit(0)));
   process.on('SIGINT',()=>server.close(()=>process.exit(0)));
 }
+
