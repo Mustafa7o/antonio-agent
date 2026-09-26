@@ -4,7 +4,7 @@ import OpenAI from 'openai';
 import crypto from 'node:crypto';
 import { db, now, id, audit, cloudDb, stableJson } from './db.js';
 import { authEnabled, supabase, verifyAccessToken } from './cloud.js';
-import { integrationState, googleAuthUrl, googleExchange, gmailSend, gmailList, calendarCreate, telegramSend, whatsappSend } from './integrations.js';
+import { integrationState, googleAuthUrl, googleExchange, gmailSend, gmailList, gmailRead, calendarCreate, telegramSend, whatsappSend } from './integrations.js';
 
 const TOKEN_KEY = process.env.TOKEN_ENCRYPTION_KEY || '';
 if(process.env.NODE_ENV==='production' && !TOKEN_KEY) throw new Error('TOKEN_ENCRYPTION_KEY is required in production');
@@ -58,7 +58,8 @@ const tools=[
  {type:'function',name:'schedule_agent',description:'Schedule a future or recurring run.',parameters:{type:'object',properties:{prompt:{type:'string'},run_at:{type:'string'},repeat_minutes:{type:'integer',minimum:1}},required:['prompt','run_at']}},
  {type:'function',name:'request_approval',description:'Request approval before consequential external action.',parameters:{type:'object',properties:{task_id:{type:'string'},action:{type:'string'},payload:{type:'object'}},required:['action','payload']}},
  {type:'function',name:'send_email',description:'Send Gmail message; approval is required.',parameters:{type:'object',properties:{to:{type:'string'},subject:{type:'string'},text:{type:'string'}},required:['to','subject','text']}},
- {type:'function',name:'list_email',description:'List Gmail message IDs matching a search.',parameters:{type:'object',properties:{query:{type:'string'}},required:[]}},
+ {type:'function',name:'list_email',description:'List Gmail message IDs matching a search. Use read_email to read the actual message contents.',parameters:{type:'object',properties:{query:{type:'string'}},required:[]}},
+ {type:'function',name:'read_email',description:'Read the full text and metadata of a Gmail message by message ID.',parameters:{type:'object',properties:{message_id:{type:'string'}},required:['message_id']}},
  {type:'function',name:'create_calendar_event',description:'Create Google Calendar event; approval is required.',parameters:{type:'object',properties:{summary:{type:'string'},start:{type:'string'},end:{type:'string'},description:{type:'string'}},required:['summary','start','end']}},
  {type:'function',name:'send_telegram',description:'Send Telegram message; approval is required.',parameters:{type:'object',properties:{chat_id:{type:'string'},text:{type:'string'}},required:['chat_id','text']}},
  {type:'function',name:'send_whatsapp',description:'Send WhatsApp Cloud API message; approval is required.',parameters:{type:'object',properties:{to:{type:'string'},text:{type:'string'}},required:['to','text']}}
@@ -92,6 +93,7 @@ async function tool(name,a,userId,runId,{skipApproval=false,taskId=null}={}){
   if(approvalMap[name]&&!skipApproval){const gate=await requireApproval(userId,approvalMap[name],a,taskId);if(gate.approval_required)return gate}
   if(name==='send_email'){const tok=await db.prepare('SELECT token_json FROM integration_tokens WHERE user_id=? AND provider=?').get(userId,'google');if(!tok)return{error:'Google account not connected'};const cfg=await integrationSecret(userId,'google_oauth');return gmailSend(JSON.parse(revealSecret(tok.token_json)),a,cfg||{})}
   if(name==='list_email'){const tok=await db.prepare('SELECT token_json FROM integration_tokens WHERE user_id=? AND provider=?').get(userId,'google');if(!tok)return{error:'Google account not connected'};const cfg=await integrationSecret(userId,'google_oauth');return gmailList(JSON.parse(revealSecret(tok.token_json)),a.query||'',cfg||{})}
+  if(name==='read_email'){const tok=await db.prepare('SELECT token_json FROM integration_tokens WHERE user_id=? AND provider=?').get(userId,'google');if(!tok)return{error:'Google account not connected'};const cfg=await integrationSecret(userId,'google_oauth');return gmailRead(JSON.parse(revealSecret(tok.token_json)),a.message_id,cfg||{})}
   if(name==='create_calendar_event'){const tok=await db.prepare('SELECT token_json FROM integration_tokens WHERE user_id=? AND provider=?').get(userId,'google');if(!tok)return{error:'Google account not connected'};const cfg=await integrationSecret(userId,'google_oauth');return calendarCreate(JSON.parse(revealSecret(tok.token_json)),a,cfg||{})}
   if(name==='send_telegram'){const cfg=await integrationSecret(userId,'telegram_config');return telegramSend(a.chat_id,a.text,cfg||{})}
   if(name==='send_whatsapp'){const cfg=await integrationSecret(userId,'whatsapp_config');return whatsappSend(a.to,a.text,cfg||{})}
