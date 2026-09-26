@@ -15,7 +15,7 @@ app.set('trust proxy', Number(process.env.TRUST_PROXY || 1));
 app.use(express.json({ limit: '2mb' }));
 app.use((req,res,next)=>{res.set({
   'X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY','Referrer-Policy':'strict-origin-when-cross-origin',
-  'Permissions-Policy':'camera=(),microphone=(),geolocation=()','Cache-Control':'no-store, no-cache, must-revalidate, proxy-revalidate'
+  'Permissions-Policy':'camera=(),microphone=(self),geolocation=()','Cache-Control':'no-store, no-cache, must-revalidate, proxy-revalidate'
 });next()});
 app.use(express.static('public'));
 
