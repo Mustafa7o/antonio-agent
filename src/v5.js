@@ -13,7 +13,14 @@ export function registerV5({app,auth,db,now,id,protectSecret}) {
   async function readSettings(userId){
     const rows=await db.prepare('SELECT key,value FROM settings ORDER BY key').all();
     const out={...defaults};
-    for(const r of rows){try{out[r.key]=JSON.parse(r.value)}catch{out[r.key]=r.value}}
+    const prefix='user:'+userId+':setting:';
+    for(const r of rows){
+      let key=null;
+      if(r.key.startsWith(prefix))key=r.key.slice(prefix.length);
+      else if(Object.prototype.hasOwnProperty.call(defaults,r.key))key=r.key;
+      if(!key||!Object.prototype.hasOwnProperty.call(defaults,key))continue;
+      try{out[key]=JSON.parse(r.value)}catch{out[key]=r.value}
+    }
     return out;
   }
 
@@ -24,7 +31,7 @@ export function registerV5({app,auth,db,now,id,protectSecret}) {
     const allowed=Object.keys(defaults);
     for(const key of allowed){
       if(body[key]===undefined) continue;
-      await db.prepare('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run(key,JSON.stringify(body[key]));
+      await db.prepare('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run('user:'+req.user.id+':setting:'+key,JSON.stringify(body[key]));
     }
     res.json(await readSettings(req.user.id));
   });
@@ -47,20 +54,18 @@ export function registerV5({app,auth,db,now,id,protectSecret}) {
   app.delete('/api/v5/secrets/:provider',auth,async(req,res)=>{const map={google:'google_oauth',telegram:'telegram_config',whatsapp:'whatsapp_config'},dbProvider=map[String(req.params.provider||'').toLowerCase()];if(!dbProvider)return res.status(400).json({error:'unsupported provider'});await db.prepare('DELETE FROM integration_tokens WHERE user_id=? AND provider=?').run(req.user.id,dbProvider);res.json({ok:true,configured:false})});
   app.get('/api/v5/accounts',auth,async(req,res)=>{
     const rows=await db.prepare('SELECT provider,updated_at FROM integration_tokens WHERE user_id=? ORDER BY provider').all(req.user.id);
+    const providerMap={google:'google_oauth',telegram:'telegram_config',whatsapp:'whatsapp_config',tiktok:'tiktok',phone:'phone'};
     const connected=new Map(rows.map(r=>[r.provider,r]));
-    const providers=['google','telegram','whatsapp','tiktok','phone'];
-    res.json(providers.map(provider=>({
-      provider,
-      connected:connected.has(provider),
-      updated_at:connected.get(provider)?.updated_at||null
-    })));
+    const providers=Object.keys(providerMap);
+    res.json(providers.map(provider=>({provider,connected:connected.has(providerMap[provider]),updated_at:connected.get(providerMap[provider])?.updated_at||null})));
   });
 
   app.post('/api/v5/accounts/:provider/disconnect',auth,async(req,res)=>{
     const provider=String(req.params.provider||'').toLowerCase();
     const allowed=['google','telegram','whatsapp','tiktok','phone'];
     if(!allowed.includes(provider)) return res.status(400).json({error:'unsupported provider'});
-    await db.prepare('DELETE FROM integration_tokens WHERE user_id=? AND provider=?').run(req.user.id,provider);
+    const providerMap={google:'google_oauth',telegram:'telegram_config',whatsapp:'whatsapp_config',tiktok:'tiktok',phone:'phone'};
+    await db.prepare('DELETE FROM integration_tokens WHERE user_id=? AND provider=?').run(req.user.id,providerMap[provider]);
     res.json({ok:true,provider,connected:false});
   });
 
