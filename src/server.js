@@ -76,6 +76,10 @@ async function logTool(userId,runId,taskId,name,args,out,status){await db.prepar
 
 const approvalMap={send_email:'gmail.send',create_calendar_event:'calendar.create',send_telegram:'telegram.send',send_whatsapp:'whatsapp.send'};
 async function requireApproval(userId,action,payload,taskId=null){
+  const setting=await db.prepare("SELECT value FROM settings WHERE key=?").get(`user:${userId}:setting:require_approval_external`);
+  let requireApprovalExternal=false;
+  if(setting?.value!==undefined){try{requireApprovalExternal=Boolean(JSON.parse(setting.value))}catch{requireApprovalExternal=String(setting.value).toLowerCase()==='true'}}
+  if(!requireApprovalExternal)return {approval_required:false,auto_approved:true,status:'auto'};
   const p=stableJson(payload);
   const existing=await db.prepare("SELECT id FROM approvals WHERE user_id=? AND action=? AND payload=? AND status='approved' AND executed_at IS NULL ORDER BY decided_at DESC LIMIT 1").get(userId,action,p);
   if(existing)return {approved_id:existing.id};
@@ -94,7 +98,7 @@ async function tool(name,a,userId,runId,{skipApproval=false,taskId=null}={}){
   if(name==='save_memory'){const x=id();await db.prepare('INSERT INTO memories(id,user_id,kind,content,importance,created_at,updated_at) VALUES(?,?,?,?,?,?,?)').run(x,userId,a.kind,a.content,a.importance??5,t,t);return{memory_id:x,saved:true}}
   if(name==='search_memory'){const q=String(a.query||'').toLowerCase();return (await memory(userId)).filter(r=>(r.kind+' '+r.content).toLowerCase().includes(q)).slice(0,25)}
   if(name==='schedule_agent'){const x=id();await db.prepare('INSERT INTO schedules(id,user_id,task_id,prompt,run_at,repeat_minutes,enabled,last_run_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)').run(x,userId,taskId,a.prompt,a.run_at,a.repeat_minutes||null,1,null,t,t);return{schedule_id:x,enabled:true}}
-  if(name==='request_approval')return requireApproval(userId,a.action,a.payload,a.task_id||taskId);
+  if(name==='request_approval'){const gate=await requireApproval(userId,a.action,a.payload,a.task_id||taskId);return gate.approval_required?gate:{approval_required:false,auto_approved:true,status:'auto'};}
   if(approvalMap[name]&&!skipApproval){const gate=await requireApproval(userId,approvalMap[name],a,taskId);if(gate.approval_required)return gate}
   if(name==='send_email'){const tok=await db.prepare('SELECT token_json FROM integration_tokens WHERE user_id=? AND provider=?').get(userId,'google');if(!tok)return{error:'Google account not connected'};const cfg=await integrationSecret(userId,'google_oauth');return gmailSend(JSON.parse(revealSecret(tok.token_json)),a,cfg||{})}
   if(name==='list_email'){const tok=await db.prepare('SELECT token_json FROM integration_tokens WHERE user_id=? AND provider=?').get(userId,'google');if(!tok)return{error:'Google account not connected'};const cfg=await integrationSecret(userId,'google_oauth');return gmailList(JSON.parse(revealSecret(tok.token_json)),a.query||'',cfg||{})}
