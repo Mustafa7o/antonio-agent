@@ -52,7 +52,7 @@ button,input,textarea,select{font:inherit}.app{min-height:100vh;display:grid;gri
 <section id="settings" class="page"><div class="glass panel"><h2>إعدادات Antonio 5</h2><div class="setting"><span>الاسم</span><input id="display_name"></div><div class="setting"><span>اللهجة</span><select id="language"><option value="ar-IQ">عراقي</option><option value="ar">عربي</option></select></div><div class="setting"><span>الاستقلالية</span><select id="autonomy"><option>high</option><option>medium</option><option>low</option></select></div><div class="setting"><span>الذاكرة</span><input id="memory_enabled" type="checkbox"></div><br><button class="btn" id="saveSettings">حفظ الإعدادات</button></div></section>
 </main></div>
 <script>
-const APP_BUILD='5.0.2';let cid=localStorage.getItem('antonio_cid');let authToken='';const $=x=>document.getElementById(x);
+const APP_BUILD='5.0.1';let cid=localStorage.getItem('antonio_cid');let authToken='';const $=x=>document.getElementById(x);
 let authMode='login';
 async function api(path,opt={}){const r=await fetch(path,{credentials:'same-origin',headers:{'Content-Type':'application/json',...(opt.headers||{})},...opt});const d=await r.json().catch(()=>({}));if(!r.ok)throw Error(d.error||'request failed');return d}
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
