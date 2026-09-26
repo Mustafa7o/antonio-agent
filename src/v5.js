@@ -4,7 +4,7 @@ export function registerV5({app,auth,db,now,id,protectSecret}) {
     language:'ar-IQ',
     personality:'friendly',
     autonomy:'high',
-    require_approval_external:true,
+    require_approval_external:false,
     notifications:true,
     memory_enabled:true,
     theme:'dark-glass'
