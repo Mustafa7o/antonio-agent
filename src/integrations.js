@@ -47,18 +47,18 @@ function decodeGmailData(data='') {
 }
 function stripHtml(html='') {
   return String(html)
-    .replace(/<style[\\s\\S]*?<\\/style>/gi,' ')
-    .replace(/<script[\\s\\S]*?<\\/script>/gi,' ')
-    .replace(/<br\\s*\\/?>/gi,'\n')
-    .replace(/<\\/p>/gi,'\n')
+    .replace(/<style[\s\S]*?<\/style>/gi,' ')
+    .replace(/<script[\s\S]*?<\/script>/gi,' ')
+    .replace(/<br\s*\/?\>/gi,'\n')
+    .replace(/<\/p>/gi,'\n')
     .replace(/<[^>]+>/g,' ')
     .replace(/&nbsp;/gi,' ')
     .replace(/&amp;/gi,'&')
     .replace(/&lt;/gi,'<')
     .replace(/&gt;/gi,'>')
-    .replace(/\\r\\n/g,'\n')
-    .replace(/[ \\t]+/g,' ')
-    .replace(/\\n{3,}/g,'\n\n')
+    .replace(/\r\n/g,'\n')
+    .replace(/[ \t]+/g,' ')
+    .replace(/\n{3,}/g,'\n\n')
     .trim();
 }
 function collectGmailBodies(part, out={plain:[],html:[]}) {
