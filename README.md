@@ -1,10 +1,9 @@
-# Antonio Agent V4.1
+# Antonio Agent 5.0
 
 Antonio is an execution-oriented personal digital agent built around the OpenAI Responses API, persistent tasks, durable memory, approvals, scheduling, audit logs, and external integrations.
 
 ## V4.1 fixes
 - Production Postgres/Supabase database path through `DATABASE_URL` or `SUPABASE_DB_URL`.
-- SQLite retained only as a local-development fallback.
 - Separate web process and background worker.
 - Approval records are bound to the exact action payload and can execute immediately after approval.
 - OAuth state is short-lived and single-use.
@@ -42,7 +41,7 @@ npm start
 npm run worker
 ```
 
-The included `render.yaml` provides a two-service deployment layout for Render.
+Railway production uses separate web and worker services; Render config is retained only as an optional deployment reference.
 
 ## Required production secrets
 
