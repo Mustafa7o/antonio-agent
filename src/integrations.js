@@ -1,7 +1,11 @@
 import crypto from 'node:crypto';
 import { google } from 'googleapis';
 
-const googleScopes = (process.env.GOOGLE_SCOPES || '').split(/\s+/).filter(Boolean);
+const googleScopes = (process.env.GOOGLE_SCOPES || [
+  'https://www.googleapis.com/auth/gmail.readonly',
+  'https://www.googleapis.com/auth/gmail.send',
+  'https://www.googleapis.com/auth/calendar.events'
+].join(' ')).split(/\s+/).filter(Boolean);
 export const integrationState = () => ({
   google: Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
   telegram: Boolean(process.env.TELEGRAM_BOT_TOKEN),
