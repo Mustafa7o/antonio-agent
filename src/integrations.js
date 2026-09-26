@@ -41,6 +41,62 @@ export async function gmailList(tokens,q='',config={}) {
   const auth=googleAuthorizedClient(tokens,config), gmail=google.gmail({version:'v1',auth});
   const r=await gmail.users.messages.list({userId:'me',q,maxResults:20}); return r.data.messages||[];
 }
+
+function decodeGmailData(data='') {
+  return Buffer.from(String(data).replace(/-/g,'+').replace(/_/g,'/'),'base64').toString('utf8');
+}
+function stripHtml(html='') {
+  return String(html)
+    .replace(/<style[\\s\\S]*?<\\/style>/gi,' ')
+    .replace(/<script[\\s\\S]*?<\\/script>/gi,' ')
+    .replace(/<br\\s*\\/?>/gi,'\n')
+    .replace(/<\\/p>/gi,'\n')
+    .replace(/<[^>]+>/g,' ')
+    .replace(/&nbsp;/gi,' ')
+    .replace(/&amp;/gi,'&')
+    .replace(/&lt;/gi,'<')
+    .replace(/&gt;/gi,'>')
+    .replace(/\\r\\n/g,'\n')
+    .replace(/[ \\t]+/g,' ')
+    .replace(/\\n{3,}/g,'\n\n')
+    .trim();
+}
+function collectGmailBodies(part, out={plain:[],html:[]}) {
+  if(!part)return out;
+  const mime=String(part.mimeType||'').toLowerCase();
+  if(part.body?.data){
+    const text=decodeGmailData(part.body.data);
+    if(mime==='text/plain')out.plain.push(text);
+    else if(mime==='text/html')out.html.push(text);
+  }
+  for(const child of part.parts||[])collectGmailBodies(child,out);
+  return out;
+}
+function headerValue(headers=[],name='') {
+  return headers.find(h=>String(h.name||'').toLowerCase()===name.toLowerCase())?.value||'';
+}
+export async function gmailRead(tokens,messageId,config={}) {
+  if(!messageId) throw new Error('message_id is required');
+  const auth=googleAuthorizedClient(tokens,config), gmail=google.gmail({version:'v1',auth});
+  const r=await gmail.users.messages.get({userId:'me',id:String(messageId),format:'full'});
+  const msg=r.data||{}, payload=msg.payload||{}, headers=payload.headers||[];
+  const bodies=collectGmailBodies(payload);
+  const body=(bodies.plain.join('\n\n').trim()||stripHtml(bodies.html.join('\n\n'))||msg.snippet||'').trim();
+  return {
+    id:msg.id,
+    threadId:msg.threadId,
+    labelIds:msg.labelIds||[],
+    internalDate:msg.internalDate||null,
+    from:headerValue(headers,'From'),
+    to:headerValue(headers,'To'),
+    cc:headerValue(headers,'Cc'),
+    subject:headerValue(headers,'Subject'),
+    date:headerValue(headers,'Date'),
+    snippet:msg.snippet||'',
+    body,
+    html:bodies.html.join('\n\n').trim()||null
+  };
+}
 export async function calendarCreate(tokens,{summary,start,end,description},config={}) {
   const auth=googleAuthorizedClient(tokens,config), calendar=google.calendar({version:'v3',auth});
   const r=await calendar.events.insert({calendarId:'primary',requestBody:{summary,description,start:{dateTime:start},end:{dateTime:end}}});
