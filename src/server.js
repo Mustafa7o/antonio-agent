@@ -12,7 +12,7 @@ if(process.env.NODE_ENV==='production' && !TOKEN_KEY) throw new Error('TOKEN_ENC
 const app = express();
 app.disable('x-powered-by');
 app.set('trust proxy', Number(process.env.TRUST_PROXY || 1));
-app.use(express.json({ limit: '2mb' }));
+app.use(express.json({ limit: '18mb' }));
 app.use((req,res,next)=>{res.set({
   'X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY','Referrer-Policy':'strict-origin-when-cross-origin',
   'Permissions-Policy':'camera=(),microphone=(self),geolocation=()','Cache-Control':'no-store, no-cache, must-revalidate, proxy-revalidate'
@@ -71,7 +71,10 @@ const tools=[
 ];
 
 async function memory(userId){return db.prepare('SELECT kind,content,importance FROM memories WHERE user_id=? ORDER BY importance DESC,updated_at DESC LIMIT 60').all(userId)}
-async function history(cid,userId){return db.prepare('SELECT role,content FROM messages WHERE conversation_id=? AND user_id=? ORDER BY created_at ASC LIMIT 160').all(cid,userId)}
+async function history(cid,userId){
+  const rows=db.prepare('SELECT role,content FROM messages WHERE conversation_id=? AND user_id=? ORDER BY created_at ASC LIMIT 160').all(cid,userId);
+  return rows.map(r=>{try{const x=JSON.parse(r.content);if(x&&x.__antonio_message)return {role:r.role,content:x.content||x.text||''}}catch{}return r});
+}
 async function logTool(userId,runId,taskId,name,args,out,status){await db.prepare('INSERT INTO tool_runs(id,user_id,task_id,run_id,tool,input,output,status,created_at) VALUES(?,?,?,?,?,?,?,?,?)').run(id(),userId,taskId,runId,name,JSON.stringify(args),JSON.stringify(out),status,now())}
 
 const approvalMap={send_email:'gmail.send',create_calendar_event:'calendar.create',send_telegram:'telegram.send',send_whatsapp:'whatsapp.send'};
@@ -109,11 +112,11 @@ async function tool(name,a,userId,runId,{skipApproval=false,taskId=null}={}){
   throw new Error(`unknown tool: ${name}`);
 }
 
-async function runAgent({conversationId,input,userId,taskId=null}){
+async function runAgent({conversationId,input,userId,taskId=null,inputContent=null}){
   const runId=id(),start=now(); await db.prepare('INSERT INTO agent_runs(id,user_id,conversation_id,task_id,status,input,output,error,started_at,finished_at) VALUES(?,?,?,?,?,?,?,?,?,?)').run(runId,userId,conversationId,taskId,'running',input,'','',start,null);
   if(!openai){const e='OPENAI_API_KEY غير مضبوط.';await db.prepare("UPDATE agent_runs SET status='failed',error=?,finished_at=? WHERE id=?").run(e,now(),runId);return e}
   const system=`You are Antonio, an autonomous personal digital agent. Plan, execute, verify, and report. Never claim an external action succeeded unless the integration returned success. Consequential external actions require approval. Use web search for current public information. Persist durable facts in memory. Break complex work into tasks and steps. Arabic-first; Iraqi Arabic is welcome. Durable memory: ${JSON.stringify(await memory(userId))}`;
-  let items=[{role:'system',content:system},...(await history(conversationId,userId))];
+  let items=[{role:'system',content:system},...(await history(conversationId,userId))];if(inputContent&&items.length>1&&items[items.length-1].role==='user')items[items.length-1]={role:'user',content:inputContent};
   try{
     for(let round=0;round<10;round++){
       const response=await openai.responses.create({model:MODEL,input:items,tools:process.env.ENABLE_WEB_SEARCH==='false'?tools.filter(x=>x.type!=='web_search'):tools,store:false});
@@ -157,7 +160,36 @@ app.post('/api/approvals/:id/decide',async(req,res)=>{const a=await db.prepare('
   try{const out=await tool(actionName,payload,req.user.id,null,{skipApproval:true,taskId:a.task_id});await db.prepare('UPDATE approvals SET executed_at=? WHERE id=? AND user_id=?').run(now(),a.id,req.user.id);await audit(req.user.id,'approval_executed',{approvalId:a.id,action:a.action});return res.json({ok:true,status:'executed',result:out})}catch(e){await audit(req.user.id,'approval_execution_failed',{approvalId:a.id,error:e.message});return res.status(502).json({error:e.message,approval_id:a.id,status:'approved'})}
 });
 app.post('/api/schedules/:id/toggle',async(req,res)=>{const s=await db.prepare('SELECT enabled FROM schedules WHERE id=? AND user_id=?').get(req.params.id,req.user.id);if(!s)return res.status(404).json({error:'schedule not found'});await db.prepare('UPDATE schedules SET enabled=?,updated_at=? WHERE id=? AND user_id=?').run(s.enabled?0:1,now(),req.params.id,req.user.id);res.json({ok:true,enabled:!Boolean(s.enabled)})});
-app.post('/api/chat',async(req,res)=>{const text=String(req.body?.message||'').trim();if(!text)return res.status(400).json({error:'message required'});if(text.length>20000)return res.status(413).json({error:'message too long'});let cid=req.body?.conversation_id;if(!cid){cid=id();const t=now();await db.prepare('INSERT INTO conversations(id,user_id,title,created_at,updated_at) VALUES(?,?,?,?,?)').run(cid,req.user.id,'محادثة جديدة',t,t)}else if(!await db.prepare('SELECT id FROM conversations WHERE id=? AND user_id=?').get(cid,req.user.id))return res.status(404).json({error:'conversation not found'});await db.prepare('INSERT INTO messages(id,conversation_id,user_id,role,content,created_at) VALUES(?,?,?,?,?,?)').run(id(),cid,req.user.id,'user',text,now());try{const ans=await runAgent({conversationId:cid,input:text,userId:req.user.id});await db.prepare('INSERT INTO messages(id,conversation_id,user_id,role,content,created_at) VALUES(?,?,?,?,?,?)').run(id(),cid,req.user.id,'assistant',ans,now());await db.prepare('UPDATE conversations SET updated_at=? WHERE id=? AND user_id=?').run(now(),cid,req.user.id);res.json({conversation_id:cid,answer:ans})}catch(e){res.status(500).json({error:'agent execution failed'})}});
+app.post('/api/chat',async(req,res)=>{
+  const text=String(req.body?.message||'').trim();
+  const attachments=Array.isArray(req.body?.attachments)?req.body.attachments.slice(0,5):[];
+  if(!text&&!attachments.length)return res.status(400).json({error:'message or attachment required'});
+  if(text.length>20000)return res.status(413).json({error:'message too long'});
+  let cid=req.body?.conversation_id;
+  if(!cid){cid=id();const t=now();await db.prepare('INSERT INTO conversations(id,user_id,title,created_at,updated_at) VALUES(?,?,?,?,?)').run(cid,req.user.id,'محادثة جديدة',t,t)}
+  else if(!await db.prepare('SELECT id FROM conversations WHERE id=? AND user_id=?').get(cid,req.user.id))return res.status(404).json({error:'conversation not found'});
+  const content=[];
+  if(text)content.push({type:'input_text',text});
+  for(const a of attachments){
+    const data=String(a.data||'');
+    if(!/^data:[^;]+;base64,/.test(data))continue;
+    const type=String(a.type||'application/octet-stream');
+    if(type.startsWith('image/'))content.push({type:'input_image',image_url:data});
+    else content.push({type:'input_file',filename:String(a.name||'attachment'),file_data:data});
+  }
+  const saved=JSON.stringify({__antonio_message:true,text,content:content.map(x=>x.type==='input_image'?{type:'input_text',text:'[صورة مرفقة]'}:x.type==='input_file'?{type:'input_text',text:'[ملف مرفق: '+String(aName(x.filename||'ملف'))+']'}:x)});
+  function aName(x){return String(x).replace(/[<>]/g,'').slice(0,160)}
+  await db.prepare('INSERT INTO messages(id,conversation_id,user_id,role,content,created_at) VALUES(?,?,?,?,?,?)').run(id(),cid,req.user.id,'user',saved,now());
+  try{const ans=await runAgent({conversationId:cid,input:text||'مرفقات مضافة إلى المحادثة',userId:req.user.id,inputContent:content});await db.prepare('INSERT INTO messages(id,conversation_id,user_id,role,content,created_at) VALUES(?,?,?,?,?,?)').run(id(),cid,req.user.id,'assistant',ans,now());await db.prepare('UPDATE conversations SET updated_at=? WHERE id=? AND user_id=?').run(now(),cid,req.user.id);res.json({conversation_id:cid,answer:ans})}catch(e){console.error('chat error',e);res.status(500).json({error:'agent execution failed'})}
+});
+app.delete('/api/conversations/:id',async(req,res)=>{
+  const cid=req.params.id;
+  const exists=await db.prepare('SELECT id FROM conversations WHERE id=? AND user_id=?').get(cid,req.user.id);
+  if(!exists)return res.status(404).json({error:'conversation not found'});
+  await db.prepare('DELETE FROM messages WHERE conversation_id=? AND user_id=?').run(cid,req.user.id);
+  await db.prepare('DELETE FROM conversations WHERE id=? AND user_id=?').run(cid,req.user.id);
+  res.json({ok:true});
+});
 app.get('/api/conversations/:id/messages',async(req,res)=>res.json(await db.prepare('SELECT role,content,created_at FROM messages WHERE conversation_id=? AND user_id=? ORDER BY created_at').all(req.params.id,req.user.id)));
 
 export { runAgent, app, auth };
