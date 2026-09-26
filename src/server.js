@@ -72,7 +72,7 @@ const tools=[
 
 async function memory(userId){return db.prepare('SELECT kind,content,importance FROM memories WHERE user_id=? ORDER BY importance DESC,updated_at DESC LIMIT 60').all(userId)}
 async function history(cid,userId){
-  const rows=db.prepare('SELECT role,content FROM messages WHERE conversation_id=? AND user_id=? ORDER BY created_at ASC LIMIT 160').all(cid,userId);
+  const rows=await db.prepare('SELECT role,content FROM messages WHERE conversation_id=? AND user_id=? ORDER BY created_at ASC LIMIT 160').all(cid,userId);
   return rows.map(r=>{try{const x=JSON.parse(r.content);if(x&&x.__antonio_message)return {role:r.role,content:x.content||x.text||''}}catch{}return r});
 }
 async function logTool(userId,runId,taskId,name,args,out,status){await db.prepare('INSERT INTO tool_runs(id,user_id,task_id,run_id,tool,input,output,status,created_at) VALUES(?,?,?,?,?,?,?,?,?)').run(id(),userId,taskId,runId,name,JSON.stringify(args),JSON.stringify(out),status,now())}
