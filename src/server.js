@@ -183,6 +183,11 @@ app.post('/api/chat',async(req,res)=>{
   await db.prepare('INSERT INTO messages(id,conversation_id,user_id,role,content,created_at) VALUES(?,?,?,?,?,?)').run(id(),cid,req.user.id,'user',saved,now());
   try{const ans=await runAgent({conversationId:cid,input:text||'مرفقات مضافة إلى المحادثة',userId:req.user.id,inputContent:content});await db.prepare('INSERT INTO messages(id,conversation_id,user_id,role,content,created_at) VALUES(?,?,?,?,?,?)').run(id(),cid,req.user.id,'assistant',ans,now());await db.prepare('UPDATE conversations SET updated_at=? WHERE id=? AND user_id=?').run(now(),cid,req.user.id);res.json({conversation_id:cid,answer:ans})}catch(e){console.error('chat error',e);res.status(500).json({error:'agent execution failed'})}
 });
+app.get('/api/conversations',async(req,res)=>{
+  const limit=Math.min(50,Math.max(1,Number(req.query.limit||20)));
+  const rows=await db.prepare('SELECT id,title,created_at,updated_at FROM conversations WHERE user_id=? ORDER BY updated_at DESC LIMIT ?').all(req.user.id,limit);
+  res.json(rows);
+});
 app.delete('/api/conversations/:id',async(req,res)=>{
   const cid=req.params.id;
   const exists=await db.prepare('SELECT id FROM conversations WHERE id=? AND user_id=?').get(cid,req.user.id);
