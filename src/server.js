@@ -170,7 +170,7 @@ async function runAgent({conversationId,input,userId,taskId=null,inputContent=nu
 async function syncGmailRepliesForUser(userId){
   const rows=await db.prepare("SELECT * FROM correspondence WHERE user_id=? AND provider='gmail' AND direction='outbound' AND external_thread_id IS NOT NULL AND status IN ('awaiting_reply','replied') ORDER BY updated_at DESC LIMIT 30").all(userId);
   if(!rows.length)return 0;
-  const tok=await db.prepare("SELECT token_json FROM integration_tokens WHERE user_id=? AND provider='google'").get(userId,'google');
+  const tok=await db.prepare("SELECT token_json FROM integration_tokens WHERE user_id=? AND provider='google'").get(userId);
   if(!tok)return 0;
   const cfg=await integrationSecret(userId,'google_oauth');
   let found=0;
