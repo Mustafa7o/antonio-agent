@@ -170,17 +170,27 @@ async function syncGmailRepliesForUser(userId){
   if(!tok)return 0;
   const cfg=await integrationSecret(userId,'google_oauth');
   let found=0;
+  const tokens=JSON.parse(revealSecret(tok.token_json));
   for(const row of rows){
     try{
-      const msgs=await gmailList(JSON.parse(revealSecret(tok.token_json)),'thread:'+row.external_thread_id,cfg||{});
-      const inbound=msgs.filter(m=>Array.isArray(m.labelIds)&&m.labelIds.includes('INBOX')&&m.id!==row.external_message_id);
+      const listed=await gmailList(tokens,'thread:'+row.external_thread_id,cfg||{});
+      const fullMessages=[];
+      for(const m of listed){
+        if(!m?.id)continue;
+        try{fullMessages.push(await gmailRead(tokens,m.id,cfg||{}))}catch{}
+      }
+      const outboundDate=Number((await gmailRead(tokens,row.external_message_id,cfg||{}))?.internalDate||0);
+      const inbound=fullMessages.filter(m=>{
+        const labels=Array.isArray(m.labelIds)?m.labelIds:[];
+        const ts=Number(m.internalDate||0);
+        return m.id!==row.external_message_id && labels.includes('INBOX') && ts>=outboundDate;
+      });
       if(!inbound.length)continue;
       const latest=inbound.sort((a,b)=>Number(a.internalDate||0)-Number(b.internalDate||0)).at(-1);
       if(!latest||latest.id===row.last_inbound_message_id)continue;
-      const full=await gmailRead(JSON.parse(revealSecret(tok.token_json)),latest.id,cfg||{});
-      await db.prepare("UPDATE correspondence SET status='replied',last_inbound_message_id=?,last_checked_at=?,updated_at=? WHERE id=? AND user_id=?").run(latest.id,now(),now(),row.id,userId);
-      await audit(userId,'message_reply',{correspondenceId:row.id,provider:'gmail',contact:full.from||row.contact,subject:full.subject||row.subject,result:String(full.body||full.snippet||'').slice(0,700)});
-      await notifyUser(userId,'message_reply',{correspondenceId:row.id,contact:full.from||row.contact,subject:full.subject||row.subject,result:String(full.body||full.snippet||'').slice(0,700)});
+      await db.prepare("UPDATE correspondence SET status='replied',last_inbound_message_id=?,reply_from=?,reply_subject=?,reply_body=?,reply_received_at=?,last_checked_at=?,updated_at=? WHERE id=? AND user_id=?").run(latest.id,latest.from||row.contact,latest.subject||row.subject,String(latest.body||latest.snippet||''),latest.date||now(),now(),now(),row.id,userId);
+      await audit(userId,'message_reply',{correspondenceId:row.id,provider:'gmail',contact:latest.from||row.contact,subject:latest.subject||row.subject,result:String(latest.body||latest.snippet||'').slice(0,700)});
+      await notifyUser(userId,'message_reply',{correspondenceId:row.id,contact:latest.from||row.contact,subject:latest.subject||row.subject,result:String(latest.body||latest.snippet||'').slice(0,700)});
       found++;
     }catch(e){await audit(userId,'message_sync_error',{correspondenceId:row.id,error:e.message})}
   }
