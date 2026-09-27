@@ -227,7 +227,7 @@ async function login(){
     submit.disabled=false;
     // لا نخلي تسجيل الدخول ينتظر تحميل بيانات الوكيل؛ الواجهة تفتح فوراً والبيانات تتحمل بالخلفية.
     void boot();
-  }catch(e){
+  } catch (e) {
     error.style.color='#ff8f8f';error.textContent=(e.message||'تعذر تسجيل الدخول');
     submit.disabled=false;
   }
