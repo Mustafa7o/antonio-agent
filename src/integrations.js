@@ -84,6 +84,31 @@ function collectGmailBodies(part, out={plain:[],html:[]}) {
 function headerValue(headers=[],name='') {
   return headers.find(h=>String(h.name||'').toLowerCase()===name.toLowerCase())?.value||'';
 }
+export async function gmailThreadRead(tokens,threadId,config={}) {
+  if(!threadId) throw new Error('thread_id is required');
+  const auth=googleAuthorizedClient(tokens,config), gmail=google.gmail({version:'v1',auth});
+  const r=await gmail.users.threads.get({userId:'me',id:String(threadId),format:'full'});
+  const messages=r.data?.messages||[];
+  return messages.map(msg=>{
+    const payload=msg.payload||{}, headers=payload.headers||[], bodies=collectGmailBodies(payload);
+    const body=(bodies.plain.join('\n\n').trim()||stripHtml(bodies.html.join('\n\n'))||msg.snippet||'').trim();
+    return {
+      id:msg.id,
+      threadId:msg.threadId,
+      labelIds:msg.labelIds||[],
+      internalDate:msg.internalDate||null,
+      from:headerValue(headers,'From'),
+      to:headerValue(headers,'To'),
+      cc:headerValue(headers,'Cc'),
+      subject:headerValue(headers,'Subject'),
+      date:headerValue(headers,'Date'),
+      snippet:msg.snippet||'',
+      body,
+      html:bodies.html.join('\n\n').trim()||null
+    };
+  });
+}
+
 export async function gmailRead(tokens,messageId,config={}) {
   if(!messageId) throw new Error('message_id is required');
   const auth=googleAuthorizedClient(tokens,config), gmail=google.gmail({version:'v1',auth});
