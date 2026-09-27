@@ -17,7 +17,7 @@ app.use((req,res,next)=>{res.set({
   'X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY','Referrer-Policy':'strict-origin-when-cross-origin',
   'Permissions-Policy':'camera=(),microphone=(self),geolocation=()','Cache-Control':'no-store, no-cache, must-revalidate, proxy-revalidate'
 });next()});
-app.use(express.static('public'));
+app.use(express.static('public',{setHeaders:(res,filePath)=>{if(filePath.endsWith('.html'))res.setHeader('Cache-Control','no-store, no-cache, must-revalidate, proxy-revalidate')}}));
 
 const openai = process.env.OPENAI_API_KEY ? new OpenAI({apiKey:process.env.OPENAI_API_KEY}) : null;
 const MODEL = process.env.OPENAI_MODEL || 'gpt-5.6-luna';
