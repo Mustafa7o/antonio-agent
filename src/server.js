@@ -234,7 +234,22 @@ app.post('/api/realtime/session',auth,express.raw({type:['application/sdp','text
     res.type('text/plain').send(body);
   }catch(e){console.error('Realtime session exception',e.message);res.status(502).json({error:'تعذر تشغيل المحادثة الصوتية المباشرة'})}
 });
-// WhatsApp Cloud API webhook: Meta verification + incoming events\napp.get('/webhook',(req,res)=>{\n  const mode=String(req.query['hub.mode']||'');\n  const token=String(req.query['hub.verify_token']||'');\n  const challenge=String(req.query['hub.challenge']||'');\n  const expected=String(process.env.WEBHOOK_VERIFY_TOKEN||'');\n  if(mode==='subscribe' && expected && token===expected && challenge){\n    return res.status(200).type('text/plain').send(challenge);\n  }\n  return res.sendStatus(403);\n});\napp.post('/webhook',(req,res)=>{\n  console.log('WhatsApp webhook event received');\n  return res.sendStatus(200);\n});\napp.get('/healthz',(req,res)=>res.status(200).json({ok:true}));
+// WhatsApp Cloud API webhook: Meta verification + incoming events
+app.get('/webhook',(req,res)=>{
+  const mode=String(req.query['hub.mode']||'');
+  const token=String(req.query['hub.verify_token']||'');
+  const challenge=String(req.query['hub.challenge']||'');
+  const expected=String(process.env.WEBHOOK_VERIFY_TOKEN||'');
+  if(mode==='subscribe' && expected && token===expected && challenge){
+    return res.status(200).type('text/plain').send(challenge);
+  }
+  return res.sendStatus(403);
+});
+app.post('/webhook',(req,res)=>{
+  console.log('WhatsApp webhook event received');
+  return res.sendStatus(200);
+});
+app.get('/healthz',(req,res)=>res.status(200).json({ok:true}));
 app.get('/api/ready',(req,res)=>res.status(200).json({ok:true}));
 app.use('/api',rate);
 app.post('/api/auth/signup',async(req,res)=>{if(!supabase)return res.status(400).json({error:'Supabase Auth is not configured'});const email=String(req.body?.email||'').trim(),password=String(req.body?.password||'');if(!email||password.length<8)return res.status(400).json({error:'valid email and password (8+ chars) required'});const {data,error}=await supabase.auth.signUp({email,password});if(error)return res.status(400).json({error:error.message});if(data.session)setSessionCookies(res,data.session);res.json({user:data.user,session:Boolean(data.session),access_token:data.session?.access_token||null})});
