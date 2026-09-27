@@ -311,7 +311,7 @@ app.delete('/api/conversations/:id',async(req,res)=>{
   await db.prepare('DELETE FROM conversations WHERE id=? AND user_id=?').run(cid,req.user.id);
   res.json({ok:true});
 });
-app.get('/api/conversations/:id/messages',async(req,res)=>res.json(await db.prepare('SELECT role,content,created_at FROM messages WHERE conversation_id=? AND user_id=? ORDER BY created_at').all(req.params.id,req.user.id)));
+app.get('/api/conversations/:id/messages',async(req,res)=>{const rows=await db.prepare('SELECT role,content,created_at FROM messages WHERE conversation_id=? AND user_id=? ORDER BY created_at').all(req.params.id,req.user.id);res.json(rows.map(r=>{if(r.role==='user'){try{const x=JSON.parse(r.content);if(x&&x.__antonio_message)return {...r,content:String(x.text||'')+(Array.isArray(x.content)&&x.content.some(v=>v?.type==='input_image'||v?.type==='input_file')?'\nمرفق مضاف':'')}}catch{} }return r}))});
 
 export { runAgent, app, auth };
 await import('./v5.js').then(m=>m.registerV5({app,auth,db,now,id,protectSecret}));
