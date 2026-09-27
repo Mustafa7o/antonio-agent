@@ -222,10 +222,15 @@ async function login(){
     authToken=d.access_token;
     sessionStorage.setItem('antonio_access_token',authToken);
     localStorage.setItem('antonio_access_token',authToken);
-    error.style.color='#7ee787';error.textContent='تم تسجيل الدخول…';
-    await boot();
-  }catch(e){error.style.color='#ff8f8f';error.textContent=e.message||'تعذر تسجيل الدخول'}
-  finally{submit.disabled=false}
+    error.textContent='';
+    showApp(d.user);
+    submit.disabled=false;
+    // لا نخلي تسجيل الدخول ينتظر تحميل بيانات الوكيل؛ الواجهة تفتح فوراً والبيانات تتحمل بالخلفية.
+    void boot();
+  }catch(e){
+    error.style.color='#ff8f8f';error.textContent=e.message||'تعذر تسجيل الدخول';
+    submit.disabled=false;
+  }
 }
 $('authForm').addEventListener('submit',e=>{e.preventDefault();if(authMode==='login')login();else signup()});
 async function signup(){
