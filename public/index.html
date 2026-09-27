@@ -204,36 +204,6 @@ html.dark .notify-panel{background:rgba(28,30,36,.94)}
 </main></div>
 <div id="toast" class="glass toast"><b id="toastTitle">Antonio</b><span id="toastText"></span></div>
 <script>
-(function(){
-  const form=document.getElementById('authForm');
-  if(!form)return;
-  form.addEventListener('submit',async function(e){
-    e.preventDefault();
-    e.stopImmediatePropagation();
-    const email=(document.getElementById('authEmail')?.value||'').trim();
-    const password=document.getElementById('authPassword')?.value||'';
-    const err=document.getElementById('authError');
-    const btn=document.getElementById('authSubmit');
-    if(!email||!password){if(err)err.textContent='أدخل البريد الإلكتروني وكلمة المرور';return}
-    if(btn)btn.disabled=true;
-    if(err){err.style.color='#aeb5c2';err.textContent='جاري تسجيل الدخول...'}
-    try{
-      const r=await fetch('/api/auth/login?ts='+Date.now(),{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','Cache-Control':'no-cache'},cache:'no-store',body:JSON.stringify({email,password})});
-      const d=await r.json().catch(()=>({}));
-      if(!r.ok)throw new Error(d.error||'البريد الإلكتروني أو كلمة المرور غير صحيحة');
-      if(!d.access_token)throw new Error('تم تسجيل الدخول بدون جلسة صالحة');
-      sessionStorage.setItem('antonio_access_token',d.access_token);
-      localStorage.setItem('antonio_access_token',d.access_token);
-      if(err){err.style.color='#7ee2a8';err.textContent='تم تسجيل الدخول، جاري فتح Antonio...'}
-      location.reload();
-    }catch(x){
-      if(err){err.style.color='#ff8f8f';err.textContent=x.message||'تعذر تسجيل الدخول'}
-      if(btn)btn.disabled=false;
-    }
-  },true);
-})();
-</script>
-<script>
 const APP_BUILD='5.2.0';
 function applyTheme(mode){const dark=mode==='dark';document.documentElement.classList.toggle('dark',dark);localStorage.setItem('antonio_theme',dark?'dark':'light');$('themeToggle').textContent=dark?'☀️':'🌙';$('themeToggle').title=dark?'تبديل للوضع النهاري':'تبديل للوضع الليلي';$('themeSettingToggle').textContent=dark?'الوضع النهاري':'الوضع الليلي';$('themeColor').setAttribute('content',dark?'#07080b':'#f5f5f7')}
 let cid=localStorage.getItem('antonio_cid');let authToken=sessionStorage.getItem('antonio_access_token')||localStorage.getItem('antonio_access_token')||'';const $=x=>document.getElementById(x);let authMode='login';
