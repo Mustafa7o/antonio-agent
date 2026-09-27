@@ -215,7 +215,8 @@ async function login(){
   if(!email||!password){error.textContent='أدخل البريد الإلكتروني وكلمة المرور';return}
   submit.disabled=true;error.style.color='#ff8f8f';error.textContent='جاري تسجيل الدخول...';
   try{
-    let r=await fetch('/api/auth/login',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','Cache-Control':'no-cache'},cache:'no-store',signal:controller.signal,body:JSON.stringify({email,password})})}finally{clearTimeout(timeout)const d=await r.json().catch(()=>({}));
+    const r=await fetch('/api/auth/login',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','Cache-Control':'no-cache'},cache:'no-store',body:JSON.stringify({email,password})});
+    const d=await r.json().catch(()=>({}));
     if(!r.ok)throw Error(d.error||'تعذر تسجيل الدخول');
     if(!d.access_token)throw Error('تم قبول الدخول لكن لم تصل جلسة المصادقة');
     authToken=d.access_token;
