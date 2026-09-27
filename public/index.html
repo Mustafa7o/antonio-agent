@@ -337,8 +337,9 @@ async function startLiveVoice(){
       if(e.type==='error')$('voiceStatus').textContent='خطأ بالمكالمة: '+cleanDisplayText(e.error?.message||'تعذر الاتصال');
     };
     livePc.onconnectionstatechange=()=>{if(['failed','disconnected','closed'].includes(livePc.connectionState))stopLiveVoice()};
-    const offer=await livePc.createOffer();await livePc.setLocalDescription(offer);
-    const r=await fetch('/api/realtime/session',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/sdp',...(authToken?{Authorization:'Bearer '+authToken}:{})},body:offer.sdp});
+    const offer=await livePc.createOffer();await livePc.setLocalDescription(offer);await new Promise(r=>setTimeout(r,0));
+    const sdp=String(livePc.localDescription?.sdp||offer.sdp||'').trim();if(!sdp)throw Error('تعذر إنشاء عرض الصوت');
+    const r=await fetch('/api/realtime/session',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/sdp',Accept:'application/sdp',...(authToken?{Authorization:'Bearer '+authToken}:{})},body:new Blob([sdp],{type:'application/sdp'})});
     const body=await r.text();if(!r.ok)throw Error(cleanDisplayText(body)||'تعذر تشغيل المكالمة');
     await livePc.setRemoteDescription({type:'answer',sdp:body});
   }catch(e){stopLiveVoice();$('voiceStatus').textContent='الصوت المباشر: '+cleanDisplayText(e.message)}
