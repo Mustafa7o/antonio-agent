@@ -176,22 +176,26 @@ async function syncGmailRepliesForUser(userId){
   let found=0;
   const tokens=JSON.parse(revealSecret(tok.token_json));
   for(const row of rows){
+    let stage='start';
     try{
+      stage='read_thread';
       const fullMessages=await gmailThreadRead(tokens,row.external_thread_id,cfg||{});
+      stage='read_outbound';
       const outboundDate=Number((await gmailRead(tokens,row.external_message_id,cfg||{}))?.internalDate||0);
       const inbound=fullMessages.filter(m=>{
         const labels=Array.isArray(m.labelIds)?m.labelIds:[];
         const ts=Number(m.internalDate||0);
         return m.id!==row.external_message_id && labels.includes('INBOX') && ts>=outboundDate;
       });
-      if(!inbound.length)continue;
+      if(!inbound.length){await db.prepare('UPDATE correspondence SET last_checked_at=?,updated_at=? WHERE id=? AND user_id=?').run(now(),now(),row.id,userId);continue;}
+      stage='persist_reply';
       const latest=inbound.sort((a,b)=>Number(a.internalDate||0)-Number(b.internalDate||0)).at(-1);
       if(!latest||latest.id===row.last_inbound_message_id)continue;
       await db.prepare("UPDATE correspondence SET status='replied',last_inbound_message_id=?,reply_from=?,reply_subject=?,reply_body=?,reply_received_at=?,last_checked_at=?,updated_at=? WHERE id=? AND user_id=?").run(latest.id,latest.from||row.contact,latest.subject||row.subject,String(latest.body||latest.snippet||''),latest.date||now(),now(),now(),row.id,userId);
       await audit(userId,'message_reply',{correspondenceId:row.id,provider:'gmail',contact:latest.from||row.contact,subject:latest.subject||row.subject,result:String(latest.body||latest.snippet||'').slice(0,700)});
       await notifyUser(userId,'message_reply',{correspondenceId:row.id,contact:latest.from||row.contact,subject:latest.subject||row.subject,result:String(latest.body||latest.snippet||'').slice(0,700)});
       found++;
-    }catch(e){await audit(userId,'message_sync_error',{correspondenceId:row.id,error:e.message})}
+    }catch(e){await audit(userId,'message_sync_error',{correspondenceId:row.id,stage,error:e.message,stack:String(e.stack||'').slice(0,1200)})}
   }
   return found;
 }
