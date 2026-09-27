@@ -51,12 +51,16 @@ function revealSecret(value){
 }
 async function integrationSecret(userId,provider){const row=await db.prepare('SELECT token_json FROM integration_tokens WHERE user_id=? AND provider=?').get(userId,provider);if(!row?.token_json)return null;try{return JSON.parse(revealSecret(row.token_json))}catch{return null}}
 
-const RATE = Math.max(1, Number(process.env.RATE_LIMIT_PER_MINUTE || 60));
+const READ_RATE = Math.max(30, Number(process.env.RATE_LIMIT_READS_PER_MINUTE || 300));
+const WRITE_RATE = Math.max(10, Number(process.env.RATE_LIMIT_WRITES_PER_MINUTE || 60));
 const buckets = new Map();
 function rate(req,res,next){
-  const key=req.ip||'unknown', minute=Math.floor(Date.now()/60000); let b=buckets.get(key);
+  const key=(req.ip||'unknown')+':'+req.method, minute=Math.floor(Date.now()/60000); let b=buckets.get(key);
   if(!b || b.minute!==minute){b={minute,count:0};buckets.set(key,b)}
-  b.count++; if(b.count>RATE)return res.status(429).json({error:'rate limit exceeded'}); next();
+  const limit=(req.method==='GET'||req.method==='HEAD')?READ_RATE:WRITE_RATE;
+  b.count++;
+  if(b.count>limit)return res.status(429).json({error:'rate limit exceeded',retry_after_seconds:Math.max(1,60-(Date.now()%60000)/1000)});
+  next();
 }
 setInterval(()=>{const cutoff=Math.floor(Date.now()/60000)-2;for(const [k,v] of buckets)if(v.minute<cutoff)buckets.delete(k)},120000).unref();
 
@@ -218,7 +222,6 @@ app.get('/api/projects',async(req,res)=>res.json(await db.prepare('SELECT * FROM
 app.get('/api/goals',async(req,res)=>res.json(await db.prepare('SELECT * FROM goals WHERE user_id=? ORDER BY priority DESC,updated_at DESC').all(req.user.id)));
 app.post('/api/projects',async(req,res)=>{const name=String(req.body?.name||'').trim();if(!name)return res.status(400).json({error:'name required'});const x=id(),t=now();await db.prepare('INSERT INTO projects(id,user_id,name,description,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?)').run(x,req.user.id,name,String(req.body?.description||''),'active',t,t);res.json({id:x,status:'active'})});
 app.post('/api/goals',async(req,res)=>{const title=String(req.body?.title||'').trim();if(!title)return res.status(400).json({error:'title required'});if(req.body?.project_id&&!await db.prepare('SELECT id FROM projects WHERE id=? AND user_id=?').get(req.body.project_id,req.user.id))return res.status(404).json({error:'project not found'});const x=id(),t=now();await db.prepare('INSERT INTO goals(id,user_id,project_id,title,description,status,priority,target_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)').run(x,req.user.id,req.body.project_id||null,title,String(req.body?.description||''),'active',Number(req.body?.priority||5),req.body?.target_at||null,t,t);res.json({id:x,status:'active'})});
-
 app.post('/api/tasks/:id/ack',async(req,res)=>{const task=await db.prepare('SELECT id,status,acknowledged_at FROM tasks WHERE id=? AND user_id=?').get(req.params.id,req.user.id);if(!task)return res.status(404).json({error:'task not found'});if(task.acknowledged_at)return res.json({ok:true,already:true,acknowledged_at:task.acknowledged_at});const t=now();await db.prepare("UPDATE tasks SET acknowledged_at=?,acknowledged_by_user=TRUE,status=CASE WHEN status='waiting_confirmation' THEN 'completed' ELSE status END,updated_at=? WHERE id=? AND user_id=?").run(t,t,req.params.id,req.user.id);await audit(req.user.id,'task_acknowledged',{taskId:req.params.id});res.json({ok:true,acknowledged_at:t,status:'completed'})});
 app.get('/api/correspondence',async(req,res)=>res.json(await db.prepare('SELECT * FROM correspondence WHERE user_id=? ORDER BY updated_at DESC LIMIT 100').all(req.user.id)));
 app.get('/api/tasks/:id/steps',async(req,res)=>res.json(await db.prepare('SELECT * FROM task_steps WHERE task_id=? AND EXISTS(SELECT 1 FROM tasks WHERE tasks.id=task_steps.task_id AND tasks.user_id=?)').all(req.params.id,req.user.id)));
