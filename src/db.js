@@ -4,15 +4,14 @@ const { Pool } = pg;
 
 const rawConnectionString = process.env.DATABASE_URL || process.env.DATABASE_URL_POOLER || process.env.SUPABASE_DB_URL || '';
 let connectionString = rawConnectionString;
-if (process.env.DB_SUPAVISOR_POOLER === 'true' && rawConnectionString) {
-  const url = new URL(rawConnectionString);
-  if (url.hostname.endsWith('.supabase.co')) {
-    url.hostname = 'aws-ap-northeast-1.pooler.supabase.com';
-    url.port = '5432';
-    if (url.username === 'postgres') url.username = 'postgres.fxtmxhfoqqbemzbdtdet';
-    connectionString = url.toString();
-  }
+
+// Use DATABASE_URL_POOLER as-is from Antonio service.
+// It already has the correct pooler hostname with cluster index (e.g., aws-0.pooler.supabase.com).
+// NEVER guess or rewrite the hostname.
+if (process.env.DATABASE_URL_POOLER && connectionString === process.env.DATABASE_URL_POOLER) {
+  console.log('Using Supabase pooler connection string as-is');
 }
+
 export const cloudDb = Boolean(connectionString);
 
 const pgSchema = `
@@ -60,7 +59,8 @@ export const now=()=>new Date().toISOString();
 export const id=()=>crypto.randomUUID();
 export function stableJson(value){
   if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
-  if (value && typeof value==='object') return `{${Object.keys(value).sort().map(k=>`${JSON.stringify(k)}:${stableJson(value[k])}`).join(',')}}`;
+  if (value && typeof value==='object') return `{${Object.keys(value).sort().map(k=>`${JSON.stringify(k)}:${stableJson(value[k])}`).join(',')}}`; 
   return JSON.stringify(value);
 }
-export const audit=(userId,event,data={})=>db.prepare('INSERT INTO audit_logs(id,user_id,event,data,created_at) VALUES(?,?,?,?,?)').run(id(),userId,event,JSON.stringify(data),now());
+export const audit=(userId,event,data={})=>db.prepare('INSERT INTO audit_logs(id,user_id,event,data,created_at) VALUES(?,?,?,?)').run(id(),userId,event,JSON.stringify(data),now());
+
