@@ -2,17 +2,12 @@ import crypto from 'node:crypto';
 import pg from 'pg';
 const { Pool } = pg;
 
-const rawConnectionString = process.env.DATABASE_URL || process.env.DATABASE_URL_POOLER || process.env.SUPABASE_DB_URL || '';
-let connectionString = rawConnectionString;
-if (process.env.DB_SUPAVISOR_POOLER === 'true' && rawConnectionString) {
-  const url = new URL(rawConnectionString);
-  if (url.hostname.endsWith('.supabase.co')) {
-    url.hostname = 'aws-ap-northeast-1.pooler.supabase.com';
-    url.port = '5432';
-    if (url.username === 'postgres') url.username = 'postgres.fxtmxhfoqqbemzbdtdet';
-    connectionString = url.toString();
-  }
-}
+// When DB_SUPAVISOR_POOLER=true, DATABASE_URL_POOLER is the authoritative connection
+// string (it already contains the correct pooler hostname/port/cluster index from
+// Supabase) and must be used as-is — never rewritten or guessed.
+const connectionString = process.env.DB_SUPAVISOR_POOLER === 'true' && process.env.DATABASE_URL_POOLER
+  ? process.env.DATABASE_URL_POOLER
+  : process.env.DATABASE_URL || process.env.DATABASE_URL_POOLER || process.env.SUPABASE_DB_URL || '';
 export const cloudDb = Boolean(connectionString);
 
 const pgSchema = `
