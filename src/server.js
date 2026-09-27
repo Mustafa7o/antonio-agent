@@ -247,7 +247,7 @@ await import('./v5.js').then(m=>m.registerV5({app,auth,db,now,id,protectSecret})
 
 if (process.argv[1] && new URL(`file://${process.argv[1]}`).href === import.meta.url) {
   const port=Number(process.env.PORT||3000);
-  const server=app.listen(port,()=>console.log(`Antonio Agent 5.0 running on ${port}`));
+  const server=app.listen(port,()=>console.log(`Antonio Agent 6.0 running on ${port}`));
   server.requestTimeout=Number(process.env.REQUEST_TIMEOUT_MS||120000);
   server.headersTimeout=Number(process.env.HEADERS_TIMEOUT_MS||30000);
   server.keepAliveTimeout=5000;
