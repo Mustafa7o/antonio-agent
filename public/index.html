@@ -176,11 +176,7 @@ html,body{width:100%;min-width:0}
   .composer textarea{grid-column:1 / -1!important;width:100%!important;min-width:0!important;min-height:48px!important;height:48px!important;max-height:80px!important;padding:11px 13px!important}
   .composer .btn{min-height:46px!important;height:46px!important;padding:0!important}
   .composer .file-btn{min-width:48px!important}
-  #voiceBtn,#clearChat,#fileInput+*{font-size:0!important}
-  #voiceBtn:before{content:"🎙️";font-size:18px}
-  #clearChat:before{content:"🗑️";font-size:18px}
-  .file-btn{font-size:0!important}
-  .file-btn:before{content:"📎";font-size:18px}
+  #voiceBtn,#clearChat,.file-btn{font-size:13px!important}
   #send{font-size:14px!important}
   #attachments{max-height:32px;overflow:auto}
   .notification-wrap{position:static}
@@ -195,7 +191,7 @@ html.dark .notify-panel{background:rgba(28,30,36,.94)}
 <div id="authScreen" class="auth-screen"><div class="glass auth-card"><div class="logo" style="margin:0 0 12px">Antonio <span>6.0</span></div><h1 id="authTitle">تسجيل الدخول</h1><p class="muted" id="authSubtitle">ادخل إلى وكيلك الشخصي بأمان.</p><div class="auth-tabs"><button id="loginTab" class="active">تسجيل الدخول</button><button id="signupTab">إنشاء حساب</button></div><form id="authForm" class="auth-form"><div><label>البريد الإلكتروني</label><input id="authEmail" type="email" autocomplete="email" required></div><div><label>كلمة المرور</label><input id="authPassword" type="password" autocomplete="current-password" required></div><div id="confirmWrap" class="hidden"><label>تأكيد كلمة المرور</label><input id="authConfirm" type="password" autocomplete="new-password" minlength="8"></div><div id="authError" class="auth-error"></div><button id="authSubmit" class="btn" type="submit">دخول</button><div class="auth-note">الجلسة محمية عبر Supabase Auth.</div></form></div></div>
 
 <div id="app" class="app hidden"><aside class="side"><div class="logo">Antonio <span>6.0</span></div><nav class="nav"><button class="active" data-page="home">الرئيسية</button><button data-page="tasks">المهام</button><button data-page="correspondence">المراسلات</button><button data-page="memory">الذاكرة</button><button data-page="accounts">الحسابات</button><button data-page="settings">الإعدادات</button></nav></aside><main class="main"><div class="top"><div class="title"><h1 id="pageTitle">Antonio</h1><div class="muted" id="status">جاري الاتصال...</div></div><div class="user-menu"><span class="muted" id="userEmail"></span><div class="notification-wrap"><button class="btn dark notify-btn" id="notifyBtn" type="button" title="الإشعارات">🔔<span id="notifyBadge" class="notify-badge">0</span></button><div id="notifyPanel" class="glass notify-panel hidden"><h3>إشعارات Antonio</h3><div id="notifyList" class="list"><div class="muted">ماكو إشعارات جديدة</div></div></div></div><button class="btn dark theme-toggle" id="themeToggle" type="button" title="تبديل الوضع">🌙</button><button class="btn dark" id="logoutBtn">تسجيل الخروج</button></div></div>
-<section id="home" class="page active"><div class="dashboard"><section class="glass chat"><div id="msgs" class="msgs"></div><div class="composer"><textarea id="input" rows="2" placeholder="گله شتريد يسوي Antonio..."></textarea><label class="btn dark file-btn" title="رفع صورة أو ملف">📎<input id="fileInput" type="file" accept="image/*,.pdf,.txt,.csv,.json,.md,.doc,.docx,.xls,.xlsx,.ppt,.pptx" multiple hidden></label><button class="btn dark" id="voiceBtn" type="button">🎙️ تحدث</button><button class="btn dark" id="clearChat" type="button">🗑️ مسح الدردشة</button><button class="btn" id="send">إرسال</button></div><div id="attachments" class="muted" style="margin-top:8px"></div><div id="voiceStatus" class="muted" style="margin-top:8px"></div></section><aside><div class="glass panel"><h3>الحالة</h3><div class="stats"><div class="stat"><div class="muted">المهام</div><div class="num" id="tasksN">0</div></div><div class="stat"><div class="muted">قيد التنفيذ</div><div class="num" id="runningN">0</div></div><div class="stat"><div class="muted">الذاكرة</div><div class="num" id="memN">0</div></div></div></div><div class="glass panel"><h3>آخر المهام</h3><div id="homeTasks" class="list"></div></div></aside></div></section>
+<section id="home" class="page active"><div class="dashboard"><section class="glass chat"><div id="msgs" class="msgs"></div><div class="composer"><textarea id="input" rows="2" placeholder="گله شتريد يسوي Antonio..."></textarea><label class="btn dark file-btn" title="رفع صورة أو ملف">مرفق<input id="fileInput" type="file" accept="image/*,.pdf,.txt,.csv,.json,.md,.doc,.docx,.xls,.xlsx,.ppt,.pptx" multiple hidden></label><button class="btn dark" id="voiceBtn" type="button">مكالمة مباشرة</button><button class="btn dark" id="clearChat" type="button">مسح الدردشة</button><button class="btn" id="send">إرسال</button></div><div id="attachments" class="muted" style="margin-top:8px"></div><div id="voiceStatus" class="muted" style="margin-top:8px"></div></section><aside><div class="glass panel"><h3>الحالة</h3><div class="stats"><div class="stat"><div class="muted">المهام</div><div class="num" id="tasksN">0</div></div><div class="stat"><div class="muted">قيد التنفيذ</div><div class="num" id="runningN">0</div></div><div class="stat"><div class="muted">الذاكرة</div><div class="num" id="memN">0</div></div></div></div><div class="glass panel"><h3>آخر المهام</h3><div id="homeTasks" class="list"></div></div></aside></div></section>
 <section id="tasks" class="page"><div class="glass panel"><h2>المهام</h2><div id="tasksList" class="list"></div></div></section><section id="correspondence" class="page"><div class="glass panel"><h2>المراسلات</h2><div class="muted">هنا تظهر الرسائل اللي أرسلها Antonio والردود اللي يلقاها، وإذا شخص رد عليك راح يوصلك إشعار.</div><div id="correspondenceList" class="list" style="margin-top:12px"></div></div></section><section id="memory" class="page"><div class="glass panel"><h2>الذاكرة</h2><div id="memoryList" class="list"></div></div></section>
 <section id="accounts" class="page"><div class="glass panel"><h2>الحسابات والتكاملات</h2><div class="muted">كل خدمة إلها إعدادات ومفاتيحها الخاصة داخل قسمها. المفاتيح تُحفظ مشفّرة داخل Antonio.</div></div><div class="accounts" id="accountsList"></div>
 <div class="glass panel"><h3>Google</h3><div class="muted">Gmail + Google Calendar + OAuth</div><div class="setting"><span>Client ID</span><input id="google_client_id" autocomplete="off"></div><div class="setting"><span>Client Secret</span><input id="google_client_secret" type="password" autocomplete="new-password"></div><div class="setting"><span>Redirect URI</span><input id="google_redirect_uri" value="https://antonio-production-4e8f.up.railway.app/api/integrations/google/callback"></div><div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px"><button class="btn" id="saveGoogleSecret">حفظ مفتاح Google</button><button class="btn dark" id="connectGoogle">ربط Google</button><button class="btn dark" id="deleteGoogleSecret">حذف المفتاح</button></div><div class="muted" id="googleSecretStatus" style="margin-top:10px"></div></div>
@@ -242,7 +238,8 @@ async function signup(){
   catch(e){error.textContent=e.message||'تعذر إنشاء الحساب'}finally{submit.disabled=false}
 }
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
-let pendingFiles=[];function renderFiles(){const e=$('attachments');e.innerHTML=pendingFiles.length?pendingFiles.map((f,i)=>'<span class="pill">'+esc(f.name)+' <button type="button" data-i="'+i+'" style="border:0;background:transparent;color:#fff;cursor:pointer">×</button></span>').join(' '):'';e.querySelectorAll('button[data-i]').forEach(b=>b.onclick=()=>{pendingFiles.splice(Number(b.dataset.i),1);renderFiles()})}function add(role,text){const e=document.createElement('div');e.className='msg '+role;const t=document.createElement('span');t.textContent=text;e.appendChild(t);if(role==='assistant'){const b=document.createElement('button');b.className='btn dark';b.type='button';b.textContent='🔊';b.onclick=()=>speak(text);e.appendChild(document.createElement('br'));e.appendChild(b)}$('msgs').appendChild(e);$('msgs').scrollTop=$('msgs').scrollHeight}
+let pendingFiles=[];function renderFiles(){const e=$('attachments');e.innerHTML=pendingFiles.length?pendingFiles.map((f,i)=>'<span class="pill">'+esc(f.name)+' <button type="button" data-i="'+i+'" style="border:0;background:transparent;color:#fff;cursor:pointer">حذف</button></span>').join(' '):'';e.querySelectorAll('button[data-i]').forEach(b=>b.onclick=()=>{pendingFiles.splice(Number(b.dataset.i),1);renderFiles()})}
+function add(role,text){const e=document.createElement('div');e.className='msg '+role;const clean=cleanDisplayText(text);const t=document.createElement('span');t.textContent=clean;e.appendChild(t);if(role==='assistant'&&clean){const b=document.createElement('button');b.className='btn dark';b.type='button';b.textContent='استماع';b.onclick=()=>speak(clean);e.appendChild(document.createElement('br'));e.appendChild(b)}$('msgs').appendChild(e);$('msgs').scrollTop=$('msgs').scrollHeight}
 function showAuth(){ $('authScreen').classList.remove('hidden');$('app').classList.add('hidden') }function showApp(user){ $('authScreen').classList.add('hidden');$('app').classList.remove('hidden');$('userEmail').textContent=user?.email||'' }
 function setAuthMode(mode){authMode=mode;const login=mode==='login';$('loginTab').classList.toggle('active',login);$('signupTab').classList.toggle('active',!login);$('authTitle').textContent=login?'تسجيل الدخول':'إنشاء حساب';$('authSubtitle').textContent=login?'ادخل إلى وكيلك الشخصي بأمان.':'أنشئ حسابك وابدأ باستخدام Antonio.';$('authSubmit').textContent=login?'دخول':'إنشاء الحساب';$('confirmWrap').classList.toggle('hidden',login);$('authPassword').setAttribute('autocomplete',login?'current-password':'new-password');$('authError').textContent=''}
 $('loginTab').onclick=()=>setAuthMode('login');$('signupTab').onclick=()=>setAuthMode('signup');
@@ -280,9 +277,80 @@ async function boot(){
   }
   try{await refresh()}catch{}
 }
-async function send(silent=false){const v=$('input').value.trim();if(!v&&!pendingFiles.length)return;const files=await Promise.all(pendingFiles.map(fileToData));add('user',v+(files.length?'\n📎 '+files.map(x=>x.name).join(', '):''));$('input').value='';pendingFiles=[];renderFiles();$('send').disabled=true;try{const d=await api('/api/chat',{method:'POST',body:JSON.stringify({message:v,conversation_id:cid,attachments:files})});cid=d.conversation_id;localStorage.setItem('antonio_cid',cid);add('assistant',d.answer);if(!silent)await speak(d.answer);refresh()}catch(e){if(/authentication|required|401/i.test(e.message)){showAuth()}else add('assistant','خطأ: '+e.message)}finally{$('send').disabled=false}}
+function cleanDisplayText(value){
+  let s=String(value??'').trim();
+  for(let n=0;n<3;n++){
+    try{
+      const x=JSON.parse(s);
+      if(x&&typeof x==='object'){
+        if(typeof x.text==='string'){s=x.text;continue}
+        if(typeof x.answer==='string'){s=x.answer;continue}
+        if(typeof x.content==='string'){s=x.content;continue}
+        if(Array.isArray(x.content)){s=x.content.map(v=>typeof v==='string'?v:(v?.text||'')).filter(Boolean).join('\n');continue}
+      }
+      if(Array.isArray(x)){s=x.map(v=>typeof v==='string'?v:(v?.text||v?.content||'')).filter(Boolean).join('\n');continue}
+    }catch{}
+    break
+  }
+  return s.replace(/\u001b\[[0-9;]*m/g,'').replace(/[*_]/g,'').trim();
+}
+async function send(silent=false){const v=$('input').value.trim();if(!v&&!pendingFiles.length)return;const files=await Promise.all(pendingFiles.map(fileToData));add('user',v+(files.length?'\nمرفق: '+files.map(x=>x.name).join(', '):''));$('input').value='';pendingFiles=[];renderFiles();$('send').disabled=true;try{const d=await api('/api/chat',{method:'POST',body:JSON.stringify({message:v,conversation_id:cid,attachments:files})});cid=d.conversation_id;localStorage.setItem('antonio_cid',cid);add('assistant',d.answer);if(!silent)await speak(d.answer);refresh()}catch(e){if(/authentication|required|401/i.test(e.message)){showAuth()}else add('assistant','خطأ: '+e.message)}finally{$('send').disabled=false}}
 async function speak(text){try{$('voiceStatus').textContent='Antonio يحچي...';const r=await fetch('/api/speak',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({text})});if(!r.ok){const d=await r.json().catch(()=>({}));throw Error(d.error||'تعذر تشغيل الصوت')}const blob=await r.blob();const url=URL.createObjectURL(blob);const audio=new Audio(url);audio.onended=()=>{URL.revokeObjectURL(url);$('voiceStatus').textContent='جاهز'};await audio.play()}catch(e){$('voiceStatus').textContent='الصوت: '+e.message}}
-let recognition=null;function setupVoice(){const SR=window.SpeechRecognition||window.webkitSpeechRecognition;if(!SR){$('voiceStatus').textContent='المتصفح لا يدعم الإدخال الصوتي؛ استخدم Chrome على الهاتف.';return}recognition=new SR();recognition.lang='ar-IQ';recognition.interimResults=false;recognition.continuous=false;recognition.onstart=()=>{$('voiceBtn').textContent='⏹️ إيقاف';$('voiceStatus').textContent='أسمعك... احچي هسه'};recognition.onerror=e=>{$('voiceBtn').textContent='🎙️ تحدث';$('voiceStatus').textContent='خطأ بالصوت: '+e.error};recognition.onend=()=>{$('voiceBtn').textContent='🎙️ تحدث'};recognition.onresult=e=>{const text=e.results[0][0].transcript.trim();$('input').value=text;if(text)send()};$('voiceBtn').onclick=()=>{try{if($('voiceBtn').textContent.includes('إيقاف'))recognition.stop();else recognition.start()}catch{}}}
+let livePc=null,liveDc=null,liveMic=null,liveAudio=null,liveStarting=false;
+async function startLiveVoice(){
+  if(livePc||liveStarting)return;
+  if(!window.RTCPeerConnection||!navigator.mediaDevices?.getUserMedia){$('voiceStatus').textContent='المتصفح ما يدعم المكالمة المباشرة.';return}
+  liveStarting=true;$('voiceBtn').disabled=true;$('voiceStatus').textContent='جاري تشغيل المكالمة المباشرة...';
+  try{
+    livePc=new RTCPeerConnection();
+    liveAudio=new Audio();liveAudio.autoplay=true;liveAudio.playsInline=true;
+    livePc.ontrack=e=>{liveAudio.srcObject=e.streams[0];liveAudio.play().catch(()=>{})};
+    liveMic=await navigator.mediaDevices.getUserMedia({audio:true});
+    liveMic.getTracks().forEach(t=>livePc.addTrack(t,liveMic));
+    liveDc=livePc.createDataChannel('oai-events');
+    liveDc.onopen=()=>{
+      $('voiceBtn').disabled=false;$('voiceBtn').textContent='إنهاء المكالمة';$('voiceStatus').textContent='المكالمة مباشرة. احچي ويا Antonio بشكل طبيعي.';
+      liveDc.send(JSON.stringify({type:'session.update',session:{instructions:'احچي باللهجة العراقية البغدادية. لا تستخدم JSON ولا Markdown ولا رموز تنسيق ولا إيموجي. خليك طبيعي ومختصر. للطلبات التي تحتاج تنفيذ استخدم antonio_agent.',tool_choice:'auto'}}));
+    };
+    liveDc.onmessage=async ev=>{
+      let e;try{e=JSON.parse(ev.data)}catch{return}
+      if(e.type==='input_audio_buffer.speech_started')$('voiceStatus').textContent='أسمعك...';
+      if(e.type==='response.created')$('voiceStatus').textContent='Antonio يحچي...';
+      if(e.type==='conversation.item.input_audio_transcription.completed'&&e.transcript)add('user',e.transcript);
+      if(e.type==='response.output_audio_transcript.done'&&e.transcript)add('assistant',e.transcript);
+      if(e.type==='response.function_call_arguments.done'){
+        const item=e.item||e;if(item.name!=='antonio_agent')return;
+        let args={};try{args=JSON.parse(item.arguments||'{}')}catch{}
+        const message=String(args.message||'').trim();
+        if(!message){liveDc.send(JSON.stringify({type:'conversation.item.create',item:{type:'function_call_output',call_id:item.call_id,output:JSON.stringify({error:'message required'})}}));liveDc.send(JSON.stringify({type:'response.create'}));return}
+        $('voiceStatus').textContent='Antonio ينفذ طلبك...';
+        try{
+          const d=await api('/api/chat',{method:'POST',body:JSON.stringify({message,conversation_id:cid})});
+          cid=d.conversation_id;localStorage.setItem('antonio_cid',cid);
+          liveDc.send(JSON.stringify({type:'conversation.item.create',item:{type:'function_call_output',call_id:item.call_id,output:JSON.stringify({ok:true,result:cleanDisplayText(d.answer)})}}));
+          liveDc.send(JSON.stringify({type:'response.create'}));refresh();
+        }catch(err){
+          liveDc.send(JSON.stringify({type:'conversation.item.create',item:{type:'function_call_output',call_id:item.call_id,output:JSON.stringify({ok:false,error:err.message})}}));
+          liveDc.send(JSON.stringify({type:'response.create'}));
+        }
+      }
+      if(e.type==='error')$('voiceStatus').textContent='خطأ بالمكالمة: '+cleanDisplayText(e.error?.message||'تعذر الاتصال');
+    };
+    livePc.onconnectionstatechange=()=>{if(['failed','disconnected','closed'].includes(livePc.connectionState))stopLiveVoice()};
+    const offer=await livePc.createOffer();await livePc.setLocalDescription(offer);
+    const r=await fetch('/api/realtime/session',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/sdp',...(authToken?{Authorization:'Bearer '+authToken}:{})},body:offer.sdp});
+    const body=await r.text();if(!r.ok)throw Error(cleanDisplayText(body)||'تعذر تشغيل المكالمة');
+    await livePc.setRemoteDescription({type:'answer',sdp:body});
+  }catch(e){stopLiveVoice();$('voiceStatus').textContent='الصوت المباشر: '+cleanDisplayText(e.message)}
+  finally{liveStarting=false;$('voiceBtn').disabled=false}
+}
+function stopLiveVoice(){
+  try{if(liveDc&&liveDc.readyState==='open')liveDc.send(JSON.stringify({type:'session.close'}))}catch{}
+  try{liveMic?.getTracks().forEach(t=>t.stop())}catch{}
+  try{livePc?.close()}catch{}
+  livePc=null;liveDc=null;liveMic=null;liveAudio=null;$('voiceBtn').disabled=false;$('voiceBtn').textContent='مكالمة مباشرة';$('voiceStatus').textContent='جاهز';
+}
+function setupVoice(){$('voiceBtn').onclick=()=>livePc?stopLiveVoice():startLiveVoice()}
 let notificationCache=[];
 let notificationIds=new Set();try{const raw=localStorage.getItem('antonio_notification_ids');const parsed=raw?JSON.parse(raw):[];if(Array.isArray(parsed))notificationIds=new Set(parsed)}catch{localStorage.removeItem('antonio_notification_ids')}
 let notificationReady=false;
