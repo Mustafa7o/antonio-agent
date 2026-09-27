@@ -78,6 +78,6 @@ export function registerV5({app,auth,db,now,id,protectSecret}) {
       db.prepare("SELECT COUNT(*) AS n FROM approvals WHERE user_id=? AND status='pending'").get(u),
       db.prepare('SELECT COUNT(*) AS n FROM agent_runs WHERE user_id=?').get(u)
     ]);
-    res.json({version:'5.0.0',tasks:Number(tasks.n),running:Number(running.n),memories:Number(memories.n),pending_approvals:Number(pending.n),runs:Number(runs.n)});
+    res.json({version:'6.0.0',tasks:Number(tasks.n),running:Number(running.n),memories:Number(memories.n),pending_approvals:Number(pending.n),runs:Number(runs.n)});
   });
 }
