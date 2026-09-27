@@ -223,7 +223,7 @@ html.dark .notify-panel{background:rgba(28,30,36,.94)}
       localStorage.setItem('antonio_access_token',d.access_token);
       errorEl.style.color='#7ee787';
       errorEl.textContent='تم تسجيل الدخول…';
-      location.replace(location.pathname+location.search);
+      location.replace(location.pathname+'?antonio_session='+Date.now());
     }catch(err){
       errorEl.textContent=err?.message||'تعذر تسجيل الدخول';
     }finally{
