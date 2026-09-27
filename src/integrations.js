@@ -39,7 +39,16 @@ export async function gmailSend(tokens,{to,subject,text},config={}) {
 }
 export async function gmailList(tokens,q='',config={}) {
   const auth=googleAuthorizedClient(tokens,config), gmail=google.gmail({version:'v1',auth});
-  const r=await gmail.users.messages.list({userId:'me',q,maxResults:20}); return r.data.messages||[];
+  const r=await gmail.users.messages.list({userId:'me',q,maxResults:20});
+  const messages=r.data.messages||[];
+  const detailed=[];
+  for(const m of messages){
+    try{
+      const x=await gmail.users.messages.get({userId:'me',id:m.id,format:'metadata',metadataHeaders:['From','To','Subject','Date']});
+      detailed.push({...m,labelIds:x.data.labelIds||[],internalDate:x.data.internalDate||null,snippet:x.data.snippet||''});
+    }catch{detailed.push(m)}
+  }
+  return detailed;
 }
 
 function decodeGmailData(data='') {
