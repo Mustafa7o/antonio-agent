@@ -215,7 +215,7 @@ async function login(){
   if(!email||!password){error.textContent='أدخل البريد الإلكتروني وكلمة المرور';return}
   submit.disabled=true;error.style.color='#ff8f8f';error.textContent='جاري تسجيل الدخول...';
   try{
-    const r=await fetch('/api/auth/login',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','Cache-Control':'no-cache'},cache:'no-store',body:JSON.stringify({email,password})});
+    const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),20000);let r;try{r=await fetch('/api/auth/login',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','Cache-Control':'no-cache'},cache:'no-store',signal:controller.signal,body:JSON.stringify({email,password})})}finally{clearTimeout(timeout)}
     const d=await r.json().catch(()=>({}));
     if(!r.ok)throw Error(d.error||'تعذر تسجيل الدخول');
     if(!d.access_token)throw Error('تم قبول الدخول لكن لم تصل جلسة المصادقة');
@@ -228,7 +228,7 @@ async function login(){
     // لا نخلي تسجيل الدخول ينتظر تحميل بيانات الوكيل؛ الواجهة تفتح فوراً والبيانات تتحمل بالخلفية.
     void boot();
   }catch(e){
-    error.style.color='#ff8f8f';error.textContent=e.message||'تعذر تسجيل الدخول';
+    error.style.color='#ff8f8f';error.textContent=e.name==='AbortError'?'انتهت مهلة تسجيل الدخول. تأكد من اتصال Supabase وحاول مرة ثانية.':(e.message||'تعذر تسجيل الدخول');
     submit.disabled=false;
   }
 }
