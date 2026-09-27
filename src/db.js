@@ -30,6 +30,10 @@ CREATE TABLE IF NOT EXISTS schedules(id TEXT PRIMARY KEY,user_id TEXT NOT NULL,t
 CREATE TABLE IF NOT EXISTS agent_runs(id TEXT PRIMARY KEY,user_id TEXT NOT NULL,conversation_id TEXT,task_id TEXT,status TEXT,input TEXT,output TEXT,error TEXT,started_at timestamptz NOT NULL,finished_at timestamptz);
 CREATE TABLE IF NOT EXISTS integration_tokens(id TEXT PRIMARY KEY,user_id TEXT NOT NULL,provider TEXT NOT NULL,access_token TEXT,refresh_token TEXT,token_json TEXT,created_at timestamptz NOT NULL,updated_at timestamptz NOT NULL,UNIQUE(user_id,provider));
 CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS projects(id TEXT PRIMARY KEY,user_id TEXT NOT NULL,name TEXT NOT NULL,description TEXT DEFAULT '',status TEXT NOT NULL DEFAULT 'active',created_at timestamptz NOT NULL,updated_at timestamptz NOT NULL);
+CREATE TABLE IF NOT EXISTS goals(id TEXT PRIMARY KEY,user_id TEXT NOT NULL,project_id TEXT,title TEXT NOT NULL,description TEXT DEFAULT '',status TEXT NOT NULL DEFAULT 'active',priority integer DEFAULT 5,target_at timestamptz,created_at timestamptz NOT NULL,updated_at timestamptz NOT NULL);
+CREATE TABLE IF NOT EXISTS agent_plans(id TEXT PRIMARY KEY,run_id TEXT NOT NULL,user_id TEXT NOT NULL,goal TEXT NOT NULL,plan_json TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'active',created_at timestamptz NOT NULL,updated_at timestamptz NOT NULL);
+CREATE TABLE IF NOT EXISTS agent_steps(id TEXT PRIMARY KEY,plan_id TEXT NOT NULL,step_no integer NOT NULL,step_key TEXT NOT NULL,action TEXT NOT NULL,tool_hint TEXT,verification TEXT,status TEXT NOT NULL DEFAULT 'pending',output TEXT DEFAULT '',started_at timestamptz,finished_at timestamptz);
 CREATE TABLE IF NOT EXISTS push_subscriptions(id TEXT PRIMARY KEY,user_id TEXT NOT NULL,endpoint TEXT NOT NULL,p256dh TEXT NOT NULL,auth TEXT NOT NULL,created_at timestamptz NOT NULL,updated_at timestamptz NOT NULL,UNIQUE(user_id,endpoint));
 CREATE INDEX IF NOT EXISTS idx_tasks_user_status ON tasks(user_id,status,updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_schedules_due ON schedules(enabled,run_at);
