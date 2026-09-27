@@ -232,6 +232,19 @@ html.dark .notify-panel{background:rgba(28,30,36,.94)}
   },true);
 })();
 </script>
+<script>
+(function(){
+  fetch('/api/auth/me',{credentials:'same-origin',cache:'no-store'})
+    .then(function(r){return r.ok?r.json():null})
+    .then(function(d){
+      if(d&&d.user){
+        var a=document.getElementById('authScreen'),app=document.getElementById('app');
+        if(a)a.classList.add('hidden');
+        if(app)app.classList.remove('hidden');
+      }
+    }).catch(function(){});
+})();
+</script>
 <div id="app" class="app hidden"><aside class="side"><div class="logo">Antonio <span>5.0</span></div><nav class="nav"><button class="active" data-page="home">الرئيسية</button><button data-page="tasks">المهام</button><button data-page="memory">الذاكرة</button><button data-page="accounts">الحسابات</button><button data-page="settings">الإعدادات</button></nav></aside><main class="main"><div class="top"><div class="title"><h1 id="pageTitle">Antonio</h1><div class="muted" id="status">جاري الاتصال...</div></div><div class="user-menu"><span class="muted" id="userEmail"></span><div class="notification-wrap"><button class="btn dark notify-btn" id="notifyBtn" type="button" title="الإشعارات">🔔<span id="notifyBadge" class="notify-badge">0</span></button><div id="notifyPanel" class="glass notify-panel hidden"><h3>إشعارات Antonio</h3><div id="notifyList" class="list"><div class="muted">ماكو إشعارات جديدة</div></div></div></div><button class="btn dark theme-toggle" id="themeToggle" type="button" title="تبديل الوضع">🌙</button><button class="btn dark" id="logoutBtn">تسجيل الخروج</button></div></div>
 <section id="home" class="page active"><div class="dashboard"><section class="glass chat"><div id="msgs" class="msgs"></div><div class="composer"><textarea id="input" rows="2" placeholder="گله شتريد يسوي Antonio..."></textarea><label class="btn dark file-btn" title="رفع صورة أو ملف">📎<input id="fileInput" type="file" accept="image/*,.pdf,.txt,.csv,.json,.md,.doc,.docx,.xls,.xlsx,.ppt,.pptx" multiple hidden></label><button class="btn dark" id="voiceBtn" type="button">🎙️ تحدث</button><button class="btn dark" id="clearChat" type="button">🗑️ مسح الدردشة</button><button class="btn" id="send">إرسال</button></div><div id="attachments" class="muted" style="margin-top:8px"></div><div id="voiceStatus" class="muted" style="margin-top:8px"></div></section><aside><div class="glass panel"><h3>الحالة</h3><div class="stats"><div class="stat"><div class="muted">المهام</div><div class="num" id="tasksN">0</div></div><div class="stat"><div class="muted">قيد التنفيذ</div><div class="num" id="runningN">0</div></div><div class="stat"><div class="muted">الذاكرة</div><div class="num" id="memN">0</div></div></div></div><div class="glass panel"><h3>آخر المهام</h3><div id="homeTasks" class="list"></div></div></aside></div></section>
 <section id="tasks" class="page"><div class="glass panel"><h2>المهام</h2><div id="tasksList" class="list"></div></div></section><section id="memory" class="page"><div class="glass panel"><h2>الذاكرة</h2><div id="memoryList" class="list"></div></div></section>
