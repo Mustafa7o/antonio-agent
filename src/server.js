@@ -5,7 +5,7 @@ import crypto from 'node:crypto';
 import webpush from 'web-push';
 import { db, now, id, audit, cloudDb, stableJson } from './db.js';
 import { authEnabled, supabase, verifyAccessToken } from './cloud.js';
-import { integrationState, googleAuthUrl, googleExchange, gmailSend, gmailList, gmailRead, calendarCreate, telegramSend, whatsappSend } from './integrations.js';
+import { integrationState, googleAuthUrl, googleExchange, gmailSend, gmailList, gmailRead, gmailThreadRead, calendarCreate, telegramSend, whatsappSend } from './integrations.js';
 import { createPlan, verifyRun } from './agent-core.js';
 
 const TOKEN_KEY = process.env.TOKEN_ENCRYPTION_KEY || '';
@@ -177,12 +177,7 @@ async function syncGmailRepliesForUser(userId){
   const tokens=JSON.parse(revealSecret(tok.token_json));
   for(const row of rows){
     try{
-      const listed=await gmailList(tokens,'thread:'+row.external_thread_id,cfg||{});
-      const fullMessages=[];
-      for(const m of listed){
-        if(!m?.id)continue;
-        try{fullMessages.push(await gmailRead(tokens,m.id,cfg||{}))}catch{}
-      }
+      const fullMessages=await gmailThreadRead(tokens,row.external_thread_id,cfg||{});
       const outboundDate=Number((await gmailRead(tokens,row.external_message_id,cfg||{}))?.internalDate||0);
       const inbound=fullMessages.filter(m=>{
         const labels=Array.isArray(m.labelIds)?m.labelIds:[];
