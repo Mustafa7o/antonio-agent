@@ -435,12 +435,15 @@ function formatWaTime(v){try{return new Date(v).toLocaleString('ar-IQ',{dateStyl
 function renderWhatsApp(rows){
   const list=$('whatsappList'); if(!list)return;
   if(!rows.length){list.innerHTML='<div class="muted">ماكو رسائل WhatsApp مسجلة حالياً.</div>';return}
+  const labels={sent:'تم الإرسال إلى Meta',delivered:'تم التسليم',read:'تمت القراءة',received:'مستلمة',failed:'فشل الإرسال'};
   list.innerHTML=rows.map(m=>{
     const inbound=m.direction==='inbound';
     const title=inbound?'رسالة مستلمة':'رسالة صادرة من Antonio';
-    const status=m.status==='sent'?'تم الإرسال':m.status==='received'?'مستلمة':'فشل الإرسال';
+    const status=labels[m.status]||m.status||'غير معروف';
     const statusClass=m.status==='failed'?' style="color:#ff3b30"':'';
-    return '<div class="row" style="border-right:4px solid '+(inbound?'#34c759':'#007aff')+'"><div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap"><b>'+title+'</b><span class="pill"'+statusClass+'>'+esc(status)+'</span></div><div class="muted" style="margin-top:5px">'+esc(m.contact||'')+' · '+esc(formatWaTime(m.created_at))+'</div><div style="margin-top:9px;white-space:pre-wrap;line-height:1.7">'+esc(m.message||'')+'</div>'+(m.error?'<div class="muted" style="margin-top:7px;color:#ff3b30">'+esc(m.error)+'</div>':'')+(m.external_message_id?'<div class="muted" style="margin-top:7px;font-size:10px">WAMID: '+esc(m.external_message_id)+'</div>':'')+'</div>';
+    const timing=m.read_at?' · قُرئت '+formatWaTime(m.read_at):m.delivered_at?' · سُلّمت '+formatWaTime(m.delivered_at):'';
+    const error=m.error_message||m.error;
+    return '<div class="row" style="border-right:4px solid '+(inbound?'#34c759':'#007aff')+'"><div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap"><b>'+title+'</b><span class="pill"'+statusClass+'>'+esc(status)+'</span></div><div class="muted" style="margin-top:5px">'+esc(m.contact||'')+' · '+esc(formatWaTime(m.created_at))+esc(timing)+'</div><div style="margin-top:9px;white-space:pre-wrap;line-height:1.7">'+esc(m.message||'')+'</div>'+(error?'<div class="muted" style="margin-top:7px;color:#ff3b30">'+esc((m.error_code?m.error_code+' - ':'')+error)+'</div>':'')+(m.external_message_id?'<div class="muted" style="margin-top:7px;font-size:10px">WAMID: '+esc(m.external_message_id)+'</div>':'')+'</div>';
   }).join('');
 }
 async function loadWhatsApp(){
@@ -449,6 +452,7 @@ async function loadWhatsApp(){
     renderWhatsApp(rows);
   }catch(e){if($('whatsappList'))$('whatsappList').innerHTML='<div class="muted">تعذر تحميل سجل WhatsApp.</div>'}
 }
+setInterval(()=>{const page=$('whatsapp');if(page&&!page.classList.contains('hidden')&&!page.classList.contains('active'))return; if(page&&page.classList.contains('active'))loadWhatsApp()},5000);
 async function accounts(){try{const a=await api('/api/v5/accounts');$('accountsList').innerHTML=a.map(x=>'<div class="glass account"><div class="icon">'+({google:'G',telegram:'T',whatsapp:'W',tiktok:'♪',phone:'☎'}[x.provider]||'•')+'</div><b>'+esc(x.provider)+'</b><div class="muted">'+(x.connected?'متصل':'غير متصل')+'</div>'+(x.connected?'<button class="btn dark" data-provider="'+esc(x.provider)+'">فصل</button>':'')+'</div>').join('');document.querySelectorAll('#accountsList button[data-provider]').forEach(b=>b.onclick=()=>disconnect(b.dataset.provider));const sec=await api('/api/v5/secrets');const g=sec.find(x=>x.provider==='google'),t=sec.find(x=>x.provider==='telegram'),w=sec.find(x=>x.provider==='whatsapp');$('googleSecretStatus').textContent=g?.configured?'مفتاح Google محفوظ ومشفر داخل Antonio.':'لم يتم حفظ مفتاح Google بعد.';$('telegramSecretStatus').textContent=t?.configured?'مفتاح Telegram محفوظ ومشفر داخل Antonio.':'لم يتم حفظ مفتاح Telegram بعد.';$('whatsappSecretStatus').textContent=w?.configured?'بيانات WhatsApp محفوظة ومشفرة داخل Antonio.':'لم يتم حفظ بيانات WhatsApp بعد.'}catch(e){if(/authentication|required|401/i.test(e.message)){authToken='';sessionStorage.removeItem('antonio_access_token');showAuth()}}}
 async function saveGoogleSecret(){const client_id=$('google_client_id').value.trim(),client_secret=$('google_client_secret').value.trim(),redirect_uri=$('google_redirect_uri').value.trim();if(!client_id||!client_secret){$('googleSecretStatus').textContent='أدخل Client ID وClient Secret';return}await api('/api/v5/secrets/google',{method:'PUT',body:JSON.stringify({client_id,client_secret,redirect_uri})});$('google_client_secret').value='';$('googleSecretStatus').textContent='تم حفظ مفتاح Google بشكل مشفر.'}
 function connectGoogle(){location.href='/api/integrations/google/start'}
