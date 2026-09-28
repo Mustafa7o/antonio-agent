@@ -176,7 +176,8 @@ async function repairSystem(userId){
   try{
     await db.prepare(`CREATE TABLE IF NOT EXISTS whatsapp_messages(
       id TEXT PRIMARY KEY,user_id TEXT NOT NULL,direction TEXT NOT NULL,contact TEXT NOT NULL,message TEXT NOT NULL,
-      external_message_id TEXT,message_type TEXT,status TEXT NOT NULL DEFAULT 'sent',error TEXT,created_at timestamptz NOT NULL
+      external_message_id TEXT,message_type TEXT,status TEXT NOT NULL DEFAULT 'sent',error TEXT,created_at timestamptz NOT NULL,
+      status_updated_at timestamptz,delivered_at timestamptz,read_at timestamptz,error_code TEXT,error_message TEXT
     )`).run();
     await db.prepare('CREATE INDEX IF NOT EXISTS idx_whatsapp_messages_user_created ON whatsapp_messages(user_id,created_at DESC)').run();
     await db.prepare('CREATE INDEX IF NOT EXISTS idx_whatsapp_messages_user_direction ON whatsapp_messages(user_id,direction,created_at DESC)').run();
@@ -370,7 +371,7 @@ app.post('/api/realtime/session',auth,async(req,res)=>{
     res.type('text/plain').send(body);
   }catch(e){console.error('Realtime session exception',e.message);res.status(502).json({error:'تعذر تشغيل المحادثة الصوتية المباشرة'})}
 });
-// WhatsApp Cloud API webhook: Meta verification + incoming events
+// WhatsApp Cloud API webhook: Meta verification + incoming messages + delivery/read status events
 app.get('/webhook',(req,res)=>{
   const mode=String(req.query['hub.mode']||'');
   const token=String(req.query['hub.verify_token']||'');
@@ -386,22 +387,75 @@ app.post('/webhook',async(req,res)=>{
   try{
     const value=req.body?.entry?.[0]?.changes?.[0]?.value||{};
     const messages=Array.isArray(value.messages)?value.messages:[];
-    if(!messages.length)return;
+    const statuses=Array.isArray(value.statuses)?value.statuses:[];
+    if(!messages.length&&!statuses.length)return;
+
     const configured=await db.prepare("SELECT user_id,token_json FROM integration_tokens WHERE provider='whatsapp_config' ORDER BY updated_at DESC LIMIT 1").get();
-    if(!configured?.user_id||!configured?.token_json){console.warn('WhatsApp webhook: no configured Antonio user');return;}
+    if(!configured?.user_id){console.warn('WhatsApp webhook: no configured Antonio user');return;}
     const userId=configured.user_id;
-    let cfg; try{cfg=JSON.parse(revealSecret(configured.token_json))}catch(e){console.error('WhatsApp webhook: invalid stored config',e.message);return;}
+
+    // Meta sends delivery/read/failure updates in statuses. Update the existing WAMID row.
+    for(const s of statuses){
+      const wamid=String(s?.id||'').trim();
+      const status=String(s?.status||'').trim().toLowerCase();
+      if(!wamid||!status)continue;
+      const ts=String(s?.timestamp||'').trim();
+      const eventTime=ts&&/^\d+$/.test(ts)?new Date(Number(ts)*1000).toISOString():now();
+      const errorObj=Array.isArray(s?.errors)&&s.errors.length?s.errors[0]:null;
+      const errorCode=errorObj?.code!=null?String(errorObj.code):null;
+      const errorMessage=String(errorObj?.title||errorObj?.message||'').trim()||null;
+      const errorText=errorMessage?(errorCode?errorCode+' - '+errorMessage:errorMessage):(status==='failed'?'WhatsApp reported message delivery failure':null);
+
+      const existing=await db.prepare('SELECT id,status FROM whatsapp_messages WHERE user_id=? AND external_message_id=? ORDER BY created_at DESC LIMIT 1').get(userId,wamid);
+      if(!existing){
+        console.log('WhatsApp status received before local message row',{wamid,status});
+        continue;
+      }
+
+      if(status==='failed'){
+        await db.prepare('UPDATE whatsapp_messages SET status=?,status_updated_at=?,error=?,error_code=?,error_message=? WHERE id=? AND user_id=?')
+          .run('failed',eventTime,errorText,errorCode,errorMessage,existing.id,userId);
+      }else if(status==='read'){
+        await db.prepare('UPDATE whatsapp_messages SET status=?,status_updated_at=?,read_at=COALESCE(read_at,?),error=NULL,error_code=NULL,error_message=NULL WHERE id=? AND user_id=?')
+          .run('read',eventTime,eventTime,existing.id,userId);
+      }else if(status==='delivered'){
+        await db.prepare('UPDATE whatsapp_messages SET status=CASE WHEN status IN ('read') THEN status ELSE 'delivered' END,status_updated_at=?,delivered_at=COALESCE(delivered_at,?),error=NULL,error_code=NULL,error_message=NULL WHERE id=? AND user_id=?')
+          .run(eventTime,eventTime,existing.id,userId);
+      }else if(status==='sent'){
+        await db.prepare('UPDATE whatsapp_messages SET status=CASE WHEN status IN ('delivered','read') THEN status ELSE 'sent' END,status_updated_at=? WHERE id=? AND user_id=?')
+          .run(eventTime,existing.id,userId);
+      }else{
+        await db.prepare('UPDATE whatsapp_messages SET status=?,status_updated_at=? WHERE id=? AND user_id=?')
+          .run(status,eventTime,existing.id,userId);
+      }
+
+      await audit(userId,'whatsapp_status_updated',{
+        wamid,
+        status,
+        recipient_id:String(s?.recipient_id||''),
+        error_code:errorCode,
+        error:errorMessage
+      });
+      console.log('WhatsApp status updated',{wamid,status,error_code:errorCode,error:errorMessage});
+    }
+
+    let cfg=null;
+    if(messages.length){
+      if(!configured?.token_json){console.warn('WhatsApp webhook: no stored config for inbound processing');return;}
+      try{cfg=JSON.parse(revealSecret(configured.token_json))}catch(e){console.error('WhatsApp webhook: invalid stored config',e.message);return;}
+    }
+
     for(const msg of messages){
       const messageId=String(msg.id||'').trim(), from=String(msg.from||'').trim(), type=String(msg.type||'').trim(), text=type==='text'?String(msg.text?.body||'').trim():'';
       if(!messageId||!from)continue;
-      const duplicate=await db.prepare("SELECT id FROM messages WHERE user_id=? AND content LIKE ? LIMIT 1").get(userId,'%\\"whatsapp_message_id\\":\\"'+messageId+'\\"%');
+      const duplicate=await db.prepare("SELECT id FROM messages WHERE user_id=? AND content LIKE ? LIMIT 1").get(userId,'%\"whatsapp_message_id\":\"'+messageId+'\"%');
       if(duplicate)continue;
       const title='WhatsApp: '+from; let conversation=await db.prepare('SELECT id FROM conversations WHERE user_id=? AND title=? ORDER BY updated_at DESC LIMIT 1').get(userId,title);
       const t=now(); if(!conversation){const cid=id();await db.prepare('INSERT INTO conversations(id,user_id,title,created_at,updated_at) VALUES(?,?,?,?,?)').run(cid,userId,title,t,t);conversation={id:cid};}
       const cid=conversation.id, incomingText=text||('وصلت رسالة WhatsApp من النوع: '+type);
       const saved=JSON.stringify({__antonio_message:true,text:incomingText,whatsapp_message_id:messageId,whatsapp_from:from,whatsapp_type:type});
       await db.prepare('INSERT INTO messages(id,conversation_id,user_id,role,content,created_at) VALUES(?,?,?,?,?,?)').run(id(),cid,userId,'user',saved,t);
-      await db.prepare('INSERT INTO whatsapp_messages(id,user_id,direction,contact,message,external_message_id,message_type,status,error,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)').run(id(),userId,'inbound',from,incomingText,messageId,type,'received',null,t);
+      await db.prepare('INSERT INTO whatsapp_messages(id,user_id,direction,contact,message,external_message_id,message_type,status,error,created_at,status_updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)').run(id(),userId,'inbound',from,incomingText,messageId,type,'received',null,t,t);
       if(!text)continue;
       const answer=await runAgent({conversationId:cid,input:text,userId,inputContent:[{type:'input_text',text}]});
       await db.prepare('INSERT INTO messages(id,conversation_id,user_id,role,content,created_at) VALUES(?,?,?,?,?,?)').run(id(),cid,userId,'assistant',answer,now());
@@ -409,13 +463,15 @@ app.post('/webhook',async(req,res)=>{
       try{
         const replyText=String(answer||'');
         const sent=await whatsappSend(from,replyText,cfg||{});
-        await db.prepare('INSERT INTO whatsapp_messages(id,user_id,direction,contact,message,external_message_id,message_type,status,error,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)').run(id(),userId,'outbound',from,replyText,sent?.messages?.[0]?.id||null,'text','sent',null,now());
-        await audit(userId,'whatsapp_reply_sent',{to:from,message_id:messageId,wamid:sent?.messages?.[0]?.id||null});
-        console.log('WhatsApp reply sent',{to:from,wamid:sent?.messages?.[0]?.id||null});
+        const wamid=sent?.messages?.[0]?.id||null;
+        await db.prepare('INSERT INTO whatsapp_messages(id,user_id,direction,contact,message,external_message_id,message_type,status,error,created_at,status_updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)').run(id(),userId,'outbound',from,replyText,wamid,'text','sent',null,now(),now());
+        await audit(userId,'whatsapp_reply_sent',{to:from,message_id:messageId,wamid});
+        console.log('WhatsApp reply accepted by Meta',{to:from,wamid});
       }catch(e){
-        await db.prepare('INSERT INTO whatsapp_messages(id,user_id,direction,contact,message,external_message_id,message_type,status,error,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)').run(id(),userId,'outbound',from,String(answer||''),null,'text','failed',String(e.message||'send failed').slice(0,1000),now());
-        await audit(userId,'whatsapp_reply_failed',{to:from,message_id:messageId,error:e.message});
-        console.error('WhatsApp reply failed',{to:from,error:e.message});
+        const err=String(e.message||'send failed').slice(0,1000);
+        await db.prepare('INSERT INTO whatsapp_messages(id,user_id,direction,contact,message,external_message_id,message_type,status,error,created_at,status_updated_at,error_message) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)').run(id(),userId,'outbound',from,String(answer||''),null,'text','failed',err,now(),now(),err);
+        await audit(userId,'whatsapp_reply_failed',{to:from,message_id:messageId,error:err});
+        console.error('WhatsApp reply failed',{to:from,error:err});
       }
     }
   }catch(e){console.error('WhatsApp webhook processing failed',e.message)}
