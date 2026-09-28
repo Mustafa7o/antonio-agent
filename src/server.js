@@ -78,52 +78,95 @@ async function auth(req,res,next){
 
 async function diagnoseSystem(userId){
   const checks=[];
-  const add=(name,ok,status,details,repairable=false)=>checks.push({name,ok,status,details,repairable});
-  try{await db.prepare('SELECT 1').get();add('database',true,'connected','قاعدة البيانات تستجيب')}catch(e){add('database',false,'failed',e.message,true)}
-  if(openai){
-    try{const x=await openai.models.list(); add('openai',true,'connected','OpenAI API key والاتصال يعمل')}catch(e){add('openai',false,'failed',String(e.message||e).slice(0,500),false)}
-  }else add('openai',false,'not_configured','OPENAI_API_KEY غير مضبوط',false);
+  const safe=(v,n=700)=>String(v??'').replace(/\\s+/g,' ').slice(0,n);
+  const add=(name,status,details={},repairable=false)=>checks.push({
+    name,status,
+    ok:status==='healthy',
+    repairable,
+    details,
+    checked_at:now()
+  });
+  try{
+    await db.prepare('SELECT 1').get();
+    const tables=await db.prepare(`SELECT table_name FROM information_schema.tables WHERE table_schema='antonio' AND table_name IN ('agent_runs','tasks','approvals','integration_tokens','whatsapp_messages','correspondence','tool_runs')`).all();
+    const present=new Set(tables.map(x=>x.table_name));
+    const required=['agent_runs','tasks','approvals','integration_tokens','whatsapp_messages','correspondence','tool_runs'];
+    const missing=required.filter(x=>!present.has(x));
+    add('database',missing.length?'degraded':'healthy',{connectivity:true,missing_tables:missing},missing.length>0);
+  }catch(e){add('database','error',{error:safe(e.message)},true)}
+
+  if(!openai)add('openai','not_configured',{reason:'OPENAI_API_KEY غير مضبوط'});
+  else try{
+    const x=await openai.models.list();
+    add('openai','healthy',{authenticated:true,model_count:Array.isArray(x?.data)?x.data.length:null});
+  }catch(e){add('openai','auth_error',{error:safe(e.message)},false)}
+
   try{
     const cfg=await integrationSecret(userId,'whatsapp_config');
-    const token=cfg?.access_token||process.env.WHATSAPP_ACCESS_TOKEN;
-    const phone=cfg?.phone_number_id||process.env.WHATSAPP_PHONE_NUMBER_ID;
-    if(!token||!phone){add('whatsapp',false,'not_configured','بيانات WhatsApp ناقصة',false)}
+    const token=process.env.WHATSAPP_ACCESS_TOKEN||cfg?.access_token;
+    const phone=process.env.WHATSAPP_PHONE_NUMBER_ID||cfg?.phone_number_id;
+    if(!token||!phone)add('whatsapp','not_configured',{configured:false});
     else{
       const version=cfg?.api_version||process.env.WHATSAPP_API_VERSION||'v23.0';
       const rr=await fetch('https://graph.facebook.com/'+version+'/'+encodeURIComponent(phone)+'?fields=id,display_phone_number,verified_name',{headers:{Authorization:'Bearer '+token}});
-      const raw=await rr.text(); let data={}; try{data=JSON.parse(raw)}catch{}
-      if(rr.ok)add('whatsapp',true,'connected','Meta WhatsApp Cloud API متصل');
-      else add('whatsapp',false,'failed',String(data?.error?.message||raw).slice(0,500),false);
+      const raw=await rr.text();let d={};try{d=JSON.parse(raw)}catch{}
+      if(rr.ok)add('whatsapp','healthy',{authenticated:true,phone_number_id:d?.id||phone,display_phone_number:d?.display_phone_number||null,verified_name:d?.verified_name||null});
+      else add('whatsapp',rr.status===401||rr.status===403?'auth_error':'error',{http_status:rr.status,error:safe(d?.error?.message||raw)},false);
     }
-  }catch(e){add('whatsapp',false,'failed',e.message,false)}
+  }catch(e){add('whatsapp','error',{error:safe(e.message)},false)}
+
   try{
     const tg=await integrationSecret(userId,'telegram_config');
-    if(!tg?.bot_token) add('telegram',false,'not_configured','Telegram Bot Token غير مضبوط',false);
+    if(!tg?.bot_token)add('telegram','not_configured',{configured:false});
     else{
       const rr=await fetch('https://api.telegram.org/bot'+tg.bot_token+'/getMe');
       const d=await rr.json().catch(()=>({}));
-      if(rr.ok&&d.ok)add('telegram',true,'connected','Telegram Bot API متصل');
-      else add('telegram',false,'failed',String(d?.description||'Telegram API failed').slice(0,500),false);
+      if(rr.ok&&d.ok)add('telegram','healthy',{authenticated:true,bot_username:d?.result?.username||null});
+      else add('telegram',rr.status===401||rr.status===403?'auth_error':'error',{http_status:rr.status,error:safe(d?.description||'Telegram API failed')});
     }
-  }catch(e){add('telegram',false,'failed',e.message,false)}
+  }catch(e){add('telegram','error',{error:safe(e.message)})}
+
   try{
     const google=await integrationSecret(userId,'google');
     const oauth=await integrationSecret(userId,'google_oauth');
-    if(!google?.refresh_token&&!google?.access_token)add('google',false,'not_connected','Google غير مربوط',false);
-    else add('google',true,'connected','Google token موجود');
-    if(!oauth?.client_id&&!process.env.GOOGLE_CLIENT_ID)add('google_oauth_config',false,'not_configured','بيانات Google OAuth ناقصة',false);
-    else add('google_oauth_config',true,'configured','إعداد OAuth موجود');
-  }catch(e){add('google',false,'failed',e.message,false)}
+    const oauthConfigured=Boolean((oauth?.client_id&&oauth?.client_secret)||(process.env.GOOGLE_CLIENT_ID&&process.env.GOOGLE_CLIENT_SECRET));
+    if(!google?.refresh_token&&!google?.access_token){
+      add('google','not_connected',{oauth_configured:oauthConfigured,authenticated:false});
+    }else{
+      let gmailTest=null;
+      try{gmailTest=await gmailList('',google); }catch(e){gmailTest={error:e.message};}
+      if(gmailTest?.error)add('google',/401|unauth|invalid_grant|expired/i.test(String(gmailTest.error))?'auth_error':'error',{oauth_configured:oauthConfigured,authenticated:false,error:safe(gmailTest.error)});
+      else add('google','healthy',{oauth_configured:oauthConfigured,authenticated:true,gmail_test:true});
+    }
+  }catch(e){add('google','error',{error:safe(e.message)})}
+
   try{
     const failed=await db.prepare("SELECT COUNT(*) AS n FROM agent_runs WHERE user_id=? AND status IN ('failed','needs_review') AND started_at>NOW()-INTERVAL '24 hours'").get(userId);
+    const groups=await db.prepare("SELECT COALESCE(NULLIF(TRIM(error),''),'unknown_error') AS error, COUNT(*) AS n FROM agent_runs WHERE user_id=? AND status IN ('failed','needs_review') AND started_at>NOW()-INTERVAL '24 hours' GROUP BY 1 ORDER BY n DESC LIMIT 8").all(userId);
     const pending=await db.prepare("SELECT COUNT(*) AS n FROM approvals WHERE user_id=? AND status='pending'").get(userId);
     const due=await db.prepare("SELECT COUNT(*) AS n FROM tasks WHERE user_id=? AND status='planned' AND due_at IS NOT NULL AND due_at<=?").get(userId,now());
-    add('agent_runtime',Number(failed.n)===0,'runtime',`failed_runs_24h=${Number(failed.n)}, pending_approvals=${Number(pending.n)}, due_tasks=${Number(due.n)}`,Number(failed.n)>0);
-  }catch(e){add('agent_runtime',false,'failed',e.message,true)}
-  const bad=checks.filter(x=>!x.ok);
-  return {healthy:bad.length===0,checked_at:now(),checks,summary:bad.length?('هناك '+bad.length+' مشكلة تحتاج معالجة أو تدخل'): 'كل الفحوصات الأساسية سليمة'};
+    const running=await db.prepare("SELECT COUNT(*) AS n FROM tasks WHERE user_id=? AND status='running'").get(userId);
+    add('agent_runtime',Number(failed.n)>0?'degraded':'healthy',{
+      failed_runs_24h:Number(failed.n),
+      failure_categories:groups.map(x=>({error:safe(x.error,300),count:Number(x.n)})),
+      pending_approvals:Number(pending.n),
+      due_tasks:Number(due.n),
+      running_tasks:Number(running.n)
+    },Number(failed.n)>0);
+  }catch(e){add('agent_runtime','error',{error:safe(e.message)},true)}
+
+  const bad=checks.filter(x=>x.status!=='healthy');
+  const repairable=checks.filter(x=>x.repairable&&x.status!=='healthy');
+  return {
+    healthy:bad.length===0,
+    checked_at:now(),
+    checks,
+    summary:bad.length?('يوجد '+bad.length+' حالة غير سليمة، منها '+repairable.length+' قابلة للإصلاح الآمن تلقائياً'): 'كل الفحوصات الأساسية سليمة',
+    can_auto_repair:repairable.length>0
+  };
 }
 async function repairSystem(userId){
+  const before=await diagnoseSystem(userId);
   const actions=[];
   try{
     await db.prepare(`CREATE TABLE IF NOT EXISTS whatsapp_messages(
@@ -133,13 +176,21 @@ async function repairSystem(userId){
     await db.prepare('CREATE INDEX IF NOT EXISTS idx_whatsapp_messages_user_created ON whatsapp_messages(user_id,created_at DESC)').run();
     await db.prepare('CREATE INDEX IF NOT EXISTS idx_whatsapp_messages_user_direction ON whatsapp_messages(user_id,direction,created_at DESC)').run();
     actions.push({action:'database_schema_repair',ok:true});
-  }catch(e){actions.push({action:'database_schema_repair',ok:false,error:e.message})}
+  }catch(e){actions.push({action:'database_schema_repair',ok:false,error:safe(e.message)})}
   try{
     const stuck=await db.prepare("UPDATE tasks SET status='failed',result=CASE WHEN COALESCE(result,'')='' THEN 'تم إيقاف مهمة عالقة تلقائياً أثناء الفحص الذاتي' ELSE result END,updated_at=? WHERE user_id=? AND status='running' AND updated_at<?").run(now(),userId,new Date(Date.now()-6*60*60*1000).toISOString());
     actions.push({action:'stale_task_cleanup',ok:true,changed:Number(stuck?.changes||0)});
-  }catch(e){actions.push({action:'stale_task_cleanup',ok:false,error:e.message})}
-  const diagnosis=await diagnoseSystem(userId);
-  return {ok:diagnosis.healthy,actions,diagnosis};
+  }catch(e){actions.push({action:'stale_task_cleanup',ok:false,error:safe(e.message)})}
+  const after=await diagnoseSystem(userId);
+  const remaining=after.checks.filter(x=>x.status!=='healthy').map(x=>({name:x.name,status:x.status,details:x.details}));
+  return {
+    ok:after.healthy,
+    before,
+    actions,
+    after,
+    remaining_issues:remaining,
+    summary:after.healthy?'تم الإصلاح ثم إعادة الفحص: النظام سليم.':'تم تنفيذ الإصلاحات الآمنة ثم إعادة الفحص؛ الحالات المتبقية تحتاج إعداداً أو تدخلاً خارجياً.'
+  };
 }
 const tools=[
  {type:'web_search'},
