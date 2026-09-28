@@ -435,11 +435,11 @@ function formatWaTime(v){try{return new Date(v).toLocaleString('ar-IQ',{dateStyl
 function renderWhatsApp(rows){
   const list=$('whatsappList'); if(!list)return;
   if(!rows.length){list.innerHTML='<div class="muted">ماكو رسائل WhatsApp مسجلة حالياً.</div>';return}
-  const labels={sent:'تم الإرسال إلى Meta',delivered:'تم التسليم',read:'تمت القراءة',received:'مستلمة',failed:'فشل الإرسال'};
+  const labels={sent:'تم قبول الإرسال من Meta',delivered:'تم التسليم',read:'تمت القراءة',received:'مستلمة',failed:'فشل الإرسال'};
   list.innerHTML=rows.map(m=>{
     const inbound=m.direction==='inbound';
     const title=inbound?'رسالة مستلمة':'رسالة صادرة من Antonio';
-    const status=labels[m.status]||m.status||'غير معروف';
+    const status=m.status==='failed'&&m.external_message_id?'فشل التسليم بعد قبول Meta للطلب':(labels[m.status]||m.status||'غير معروف');
     const statusClass=m.status==='failed'?' style="color:#ff3b30"':'';
     const timing=m.read_at?' · قُرئت '+formatWaTime(m.read_at):m.delivered_at?' · سُلّمت '+formatWaTime(m.delivered_at):'';
     const error=m.error_message||m.error;
