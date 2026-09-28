@@ -141,7 +141,17 @@ async function tool(name,a,userId,runId,{skipApproval=false,taskId=null}={}){
   if(name==='read_email'){const tok=await db.prepare('SELECT token_json FROM integration_tokens WHERE user_id=? AND provider=?').get(userId,'google');if(!tok)return{error:'Google account not connected'};const cfg=await integrationSecret(userId,'google_oauth');return gmailRead(JSON.parse(revealSecret(tok.token_json)),a.message_id,cfg||{})}
   if(name==='create_calendar_event'){const tok=await db.prepare('SELECT token_json FROM integration_tokens WHERE user_id=? AND provider=?').get(userId,'google');if(!tok)return{error:'Google account not connected'};const cfg=await integrationSecret(userId,'google_oauth');return calendarCreate(JSON.parse(revealSecret(tok.token_json)),a,cfg||{})}
   if(name==='send_telegram'){const cfg=await integrationSecret(userId,'telegram_config');return telegramSend(a.chat_id,a.text,cfg||{})}
-  if(name==='send_whatsapp'){const cfg=await integrationSecret(userId,'whatsapp_config');return whatsappSend(a.to,a.text,cfg||{})}
+  if(name==='send_whatsapp'){
+    const cfg=await integrationSecret(userId,'whatsapp_config');
+    try{
+      const sent=await whatsappSend(a.to,a.text,cfg||{});
+      await db.prepare('INSERT INTO whatsapp_messages(id,user_id,direction,contact,message,external_message_id,message_type,status,error,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)').run(id(),userId,'outbound',String(a.to||''),String(a.text||''),sent?.messages?.[0]?.id||null,'text','sent',null,now());
+      return sent;
+    }catch(e){
+      await db.prepare('INSERT INTO whatsapp_messages(id,user_id,direction,contact,message,external_message_id,message_type,status,error,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)').run(id(),userId,'outbound',String(a.to||''),String(a.text||''),null,'text','failed',String(e.message||'send failed').slice(0,1000),now());
+      throw e;
+    }
+  }
   throw new Error(`unknown tool: ${name}`);
 }
 
@@ -265,12 +275,22 @@ app.post('/webhook',async(req,res)=>{
       const cid=conversation.id, incomingText=text||('وصلت رسالة WhatsApp من النوع: '+type);
       const saved=JSON.stringify({__antonio_message:true,text:incomingText,whatsapp_message_id:messageId,whatsapp_from:from,whatsapp_type:type});
       await db.prepare('INSERT INTO messages(id,conversation_id,user_id,role,content,created_at) VALUES(?,?,?,?,?,?)').run(id(),cid,userId,'user',saved,t);
+      await db.prepare('INSERT INTO whatsapp_messages(id,user_id,direction,contact,message,external_message_id,message_type,status,error,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)').run(id(),userId,'inbound',from,incomingText,messageId,type,'received',null,t);
       if(!text)continue;
       const answer=await runAgent({conversationId:cid,input:text,userId,inputContent:[{type:'input_text',text}]});
       await db.prepare('INSERT INTO messages(id,conversation_id,user_id,role,content,created_at) VALUES(?,?,?,?,?,?)').run(id(),cid,userId,'assistant',answer,now());
       await db.prepare('UPDATE conversations SET updated_at=? WHERE id=? AND user_id=?').run(now(),cid,userId);
-      try{const sent=await whatsappSend(from,String(answer||''),cfg||{});await audit(userId,'whatsapp_reply_sent',{to:from,message_id:messageId,wamid:sent?.messages?.[0]?.id||null});console.log('WhatsApp reply sent',{to:from,wamid:sent?.messages?.[0]?.id||null});}
-      catch(e){await audit(userId,'whatsapp_reply_failed',{to:from,message_id:messageId,error:e.message});console.error('WhatsApp reply failed',{to:from,error:e.message});}
+      try{
+        const replyText=String(answer||'');
+        const sent=await whatsappSend(from,replyText,cfg||{});
+        await db.prepare('INSERT INTO whatsapp_messages(id,user_id,direction,contact,message,external_message_id,message_type,status,error,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)').run(id(),userId,'outbound',from,replyText,sent?.messages?.[0]?.id||null,'text','sent',null,now());
+        await audit(userId,'whatsapp_reply_sent',{to:from,message_id:messageId,wamid:sent?.messages?.[0]?.id||null});
+        console.log('WhatsApp reply sent',{to:from,wamid:sent?.messages?.[0]?.id||null});
+      }catch(e){
+        await db.prepare('INSERT INTO whatsapp_messages(id,user_id,direction,contact,message,external_message_id,message_type,status,error,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)').run(id(),userId,'outbound',from,String(answer||''),null,'text','failed',String(e.message||'send failed').slice(0,1000),now());
+        await audit(userId,'whatsapp_reply_failed',{to:from,message_id:messageId,error:e.message});
+        console.error('WhatsApp reply failed',{to:from,error:e.message});
+      }
     }
   }catch(e){console.error('WhatsApp webhook processing failed',e.message)}
 });
@@ -296,6 +316,17 @@ app.post('/api/projects',async(req,res)=>{const name=String(req.body?.name||'').
 app.post('/api/goals',async(req,res)=>{const title=String(req.body?.title||'').trim();if(!title)return res.status(400).json({error:'title required'});if(req.body?.project_id&&!await db.prepare('SELECT id FROM projects WHERE id=? AND user_id=?').get(req.body.project_id,req.user.id))return res.status(404).json({error:'project not found'});const x=id(),t=now();await db.prepare('INSERT INTO goals(id,user_id,project_id,title,description,status,priority,target_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)').run(x,req.user.id,req.body.project_id||null,title,String(req.body?.description||''),'active',Number(req.body?.priority||5),req.body?.target_at||null,t,t);res.json({id:x,status:'active'})});
 app.post('/api/tasks/:id/ack',async(req,res)=>{const task=await db.prepare('SELECT id,status,acknowledged_at FROM tasks WHERE id=? AND user_id=?').get(req.params.id,req.user.id);if(!task)return res.status(404).json({error:'task not found'});if(task.acknowledged_at)return res.json({ok:true,already:true,acknowledged_at:task.acknowledged_at});const t=now();await db.prepare("UPDATE tasks SET acknowledged_at=?,acknowledged_by_user=TRUE,status=CASE WHEN status='waiting_confirmation' THEN 'completed' ELSE status END,updated_at=? WHERE id=? AND user_id=?").run(t,t,req.params.id,req.user.id);await audit(req.user.id,'task_acknowledged',{taskId:req.params.id});res.json({ok:true,acknowledged_at:t,status:'completed'})});
 app.get('/api/correspondence',async(req,res)=>res.json(await db.prepare('SELECT * FROM correspondence WHERE user_id=? ORDER BY updated_at DESC LIMIT 100').all(req.user.id)));
+app.get('/api/whatsapp/messages',async(req,res)=>{
+  const direction=String(req.query.direction||'all');
+  const limit=Math.min(200,Math.max(1,Number(req.query.limit||100)));
+  let rows;
+  if(direction==='inbound'||direction==='outbound'){
+    rows=await db.prepare('SELECT * FROM whatsapp_messages WHERE user_id=? AND direction=? ORDER BY created_at DESC LIMIT ?').all(req.user.id,direction,limit);
+  }else{
+    rows=await db.prepare('SELECT * FROM whatsapp_messages WHERE user_id=? ORDER BY created_at DESC LIMIT ?').all(req.user.id,limit);
+  }
+  res.json(rows);
+});
 app.delete('/api/tasks/:id',async(req,res)=>{const task=await db.prepare('SELECT id,title FROM tasks WHERE id=? AND user_id=?').get(req.params.id,req.user.id);if(!task)return res.status(404).json({error:'task not found'});await db.prepare('DELETE FROM schedules WHERE task_id=? AND user_id=?').run(task.id,req.user.id);await db.prepare('DELETE FROM task_steps WHERE task_id=?').run(task.id);await db.prepare('DELETE FROM approvals WHERE task_id=? AND user_id=?').run(task.id,req.user.id);await db.prepare('DELETE FROM tool_runs WHERE task_id=? AND user_id=?').run(task.id,req.user.id);await db.prepare('DELETE FROM agent_runs WHERE task_id=? AND user_id=?').run(task.id,req.user.id);await db.prepare('DELETE FROM tasks WHERE id=? AND user_id=?').run(task.id,req.user.id);await audit(req.user.id,'task_deleted',{taskId:task.id,title:task.title});res.json({ok:true,id:task.id})});
 app.get('/api/tasks/:id/steps',async(req,res)=>res.json(await db.prepare('SELECT * FROM task_steps WHERE task_id=? AND EXISTS(SELECT 1 FROM tasks WHERE tasks.id=task_steps.task_id AND tasks.user_id=?)').all(req.params.id,req.user.id)));
 app.get('/api/memories',async(req,res)=>res.json(await db.prepare('SELECT * FROM memories WHERE user_id=? ORDER BY importance DESC,updated_at DESC').all(req.user.id)));
