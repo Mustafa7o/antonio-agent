@@ -419,10 +419,10 @@ app.post('/webhook',async(req,res)=>{
         await db.prepare('UPDATE whatsapp_messages SET status=?,status_updated_at=?,read_at=COALESCE(read_at,?),error=NULL,error_code=NULL,error_message=NULL WHERE id=? AND user_id=?')
           .run('read',eventTime,eventTime,existing.id,userId);
       }else if(status==='delivered'){
-        await db.prepare('UPDATE whatsapp_messages SET status=CASE WHEN status IN ('read') THEN status ELSE 'delivered' END,status_updated_at=?,delivered_at=COALESCE(delivered_at,?),error=NULL,error_code=NULL,error_message=NULL WHERE id=? AND user_id=?')
+        await db.prepare("UPDATE whatsapp_messages SET status=CASE WHEN status IN ('read') THEN status ELSE 'delivered' END,status_updated_at=?,delivered_at=COALESCE(delivered_at,?),error=NULL,error_code=NULL,error_message=NULL WHERE id=? AND user_id=?")
           .run(eventTime,eventTime,existing.id,userId);
       }else if(status==='sent'){
-        await db.prepare('UPDATE whatsapp_messages SET status=CASE WHEN status IN ('delivered','read') THEN status ELSE 'sent' END,status_updated_at=? WHERE id=? AND user_id=?')
+        await db.prepare("UPDATE whatsapp_messages SET status=CASE WHEN status IN ('delivered','read') THEN status ELSE 'sent' END,status_updated_at=? WHERE id=? AND user_id=?")
           .run(eventTime,existing.id,userId);
       }else{
         await db.prepare('UPDATE whatsapp_messages SET status=?,status_updated_at=? WHERE id=? AND user_id=?')
