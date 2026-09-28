@@ -446,7 +446,17 @@ app.post('/webhook',async(req,res)=>{
     }
 
     for(const msg of messages){
-      const messageId=String(msg.id||'').trim(), from=String(msg.from||'').trim(), type=String(msg.type||'').trim(), text=type==='text'?String(msg.text?.body||'').trim():'';
+      const messageId=String(msg.id||'').trim(), from=String(msg.from||'').trim(), type=String(msg.type||'').trim();
+      const text=(()=>{
+        if(type==='text')return String(msg.text?.body||'').trim();
+        if(type==='button')return String(msg.button?.text||'').trim();
+        if(type==='interactive')return String(msg.interactive?.button_reply?.title||msg.interactive?.list_reply?.title||'').trim();
+        if(type==='image'||type==='video'||type==='document')return String(msg[type]?.caption||'').trim();
+        if(type==='location'){const lat=msg.location?.latitude,lon=msg.location?.longitude;return (lat!=null&&lon!=null)?'موقع: '+lat+', '+lon:'';}
+        if(type==='contacts')return 'تم استلام جهة اتصال';
+        if(type==='reaction')return String(msg.reaction?.emoji||'').trim();
+        return '';
+      })();
       if(!messageId||!from)continue;
       const duplicate=await db.prepare("SELECT id FROM messages WHERE user_id=? AND content LIKE ? LIMIT 1").get(userId,'%\"whatsapp_message_id\":\"'+messageId+'\"%');
       if(duplicate)continue;
