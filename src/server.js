@@ -141,7 +141,7 @@ async function repairSystem(userId){
   const diagnosis=await diagnoseSystem(userId);
   return {ok:diagnosis.healthy,actions,diagnosis};
 }
-\nconst tools=[
+const tools=[
  {type:'web_search'},
  {type:'function',name:'create_task',description:'Create a persistent task.',parameters:{type:'object',properties:{title:{type:'string'},goal:{type:'string'},priority:{type:'integer',minimum:1,maximum:10},due_at:{type:'string'}},required:['title','goal']}},
  {type:'function',name:'add_task_step',description:'Add a step to a task.',parameters:{type:'object',properties:{task_id:{type:'string'},action:{type:'string'}},required:['task_id','action']}},
