@@ -245,9 +245,34 @@ app.get('/webhook',(req,res)=>{
   }
   return res.sendStatus(403);
 });
-app.post('/webhook',(req,res)=>{
-  console.log('WhatsApp webhook event received');
-  return res.sendStatus(200);
+app.post('/webhook',async(req,res)=>{
+  res.sendStatus(200);
+  try{
+    const value=req.body?.entry?.[0]?.changes?.[0]?.value||{};
+    const messages=Array.isArray(value.messages)?value.messages:[];
+    if(!messages.length)return;
+    const configured=await db.prepare("SELECT user_id,token_json FROM integration_tokens WHERE provider='whatsapp_config' ORDER BY updated_at DESC LIMIT 1").get();
+    if(!configured?.user_id||!configured?.token_json){console.warn('WhatsApp webhook: no configured Antonio user');return;}
+    const userId=configured.user_id;
+    let cfg; try{cfg=JSON.parse(revealSecret(configured.token_json))}catch(e){console.error('WhatsApp webhook: invalid stored config',e.message);return;}
+    for(const msg of messages){
+      const messageId=String(msg.id||'').trim(), from=String(msg.from||'').trim(), type=String(msg.type||'').trim(), text=type==='text'?String(msg.text?.body||'').trim():'';
+      if(!messageId||!from)continue;
+      const duplicate=await db.prepare("SELECT id FROM messages WHERE user_id=? AND content LIKE ? LIMIT 1").get(userId,'%\\"whatsapp_message_id\\":\\"'+messageId+'\\"%');
+      if(duplicate)continue;
+      const title='WhatsApp: '+from; let conversation=await db.prepare('SELECT id FROM conversations WHERE user_id=? AND title=? ORDER BY updated_at DESC LIMIT 1').get(userId,title);
+      const t=now(); if(!conversation){const cid=id();await db.prepare('INSERT INTO conversations(id,user_id,title,created_at,updated_at) VALUES(?,?,?,?,?)').run(cid,userId,title,t,t);conversation={id:cid};}
+      const cid=conversation.id, incomingText=text||('وصلت رسالة WhatsApp من النوع: '+type);
+      const saved=JSON.stringify({__antonio_message:true,text:incomingText,whatsapp_message_id:messageId,whatsapp_from:from,whatsapp_type:type});
+      await db.prepare('INSERT INTO messages(id,conversation_id,user_id,role,content,created_at) VALUES(?,?,?,?,?,?)').run(id(),cid,userId,'user',saved,t);
+      if(!text)continue;
+      const answer=await runAgent({conversationId:cid,input:text,userId,inputContent:[{type:'input_text',text}]});
+      await db.prepare('INSERT INTO messages(id,conversation_id,user_id,role,content,created_at) VALUES(?,?,?,?,?,?)').run(id(),cid,userId,'assistant',answer,now());
+      await db.prepare('UPDATE conversations SET updated_at=? WHERE id=? AND user_id=?').run(now(),cid,userId);
+      try{const sent=await whatsappSend(from,String(answer||''),cfg||{});await audit(userId,'whatsapp_reply_sent',{to:from,message_id:messageId,wamid:sent?.messages?.[0]?.id||null});console.log('WhatsApp reply sent',{to:from,wamid:sent?.messages?.[0]?.id||null});}
+      catch(e){await audit(userId,'whatsapp_reply_failed',{to:from,message_id:messageId,error:e.message});console.error('WhatsApp reply failed',{to:from,error:e.message});}
+    }
+  }catch(e){console.error('WhatsApp webhook processing failed',e.message)}
 });
 app.get('/healthz',(req,res)=>res.status(200).json({ok:true}));
 app.get('/api/ready',(req,res)=>res.status(200).json({ok:true}));
