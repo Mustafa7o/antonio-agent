@@ -75,7 +75,73 @@ async function auth(req,res,next){
   try{let u=await verifyAccessToken(getToken(req));if(!u)u=await refreshUser(req,res);if(!u)return res.status(401).json({error:'authentication required'});req.user={id:u.id,email:u.email||null,local:false};next()}catch{res.status(401).json({error:'authentication required'})}
 }
 
-const tools=[
+
+async function diagnoseSystem(userId){
+  const checks=[];
+  const add=(name,ok,status,details,repairable=false)=>checks.push({name,ok,status,details,repairable});
+  try{await db.prepare('SELECT 1').get();add('database',true,'connected','قاعدة البيانات تستجيب')}catch(e){add('database',false,'failed',e.message,true)}
+  if(openai){
+    try{const x=await openai.models.list(); add('openai',true,'connected','OpenAI API key والاتصال يعمل')}catch(e){add('openai',false,'failed',String(e.message||e).slice(0,500),false)}
+  }else add('openai',false,'not_configured','OPENAI_API_KEY غير مضبوط',false);
+  try{
+    const cfg=await integrationSecret(userId,'whatsapp_config');
+    const token=cfg?.access_token||process.env.WHATSAPP_ACCESS_TOKEN;
+    const phone=cfg?.phone_number_id||process.env.WHATSAPP_PHONE_NUMBER_ID;
+    if(!token||!phone){add('whatsapp',false,'not_configured','بيانات WhatsApp ناقصة',false)}
+    else{
+      const version=cfg?.api_version||process.env.WHATSAPP_API_VERSION||'v23.0';
+      const rr=await fetch('https://graph.facebook.com/'+version+'/'+encodeURIComponent(phone)+'?fields=id,display_phone_number,verified_name',{headers:{Authorization:'Bearer '+token}});
+      const raw=await rr.text(); let data={}; try{data=JSON.parse(raw)}catch{}
+      if(rr.ok)add('whatsapp',true,'connected','Meta WhatsApp Cloud API متصل');
+      else add('whatsapp',false,'failed',String(data?.error?.message||raw).slice(0,500),false);
+    }
+  }catch(e){add('whatsapp',false,'failed',e.message,false)}
+  try{
+    const tg=await integrationSecret(userId,'telegram_config');
+    if(!tg?.bot_token) add('telegram',false,'not_configured','Telegram Bot Token غير مضبوط',false);
+    else{
+      const rr=await fetch('https://api.telegram.org/bot'+tg.bot_token+'/getMe');
+      const d=await rr.json().catch(()=>({}));
+      if(rr.ok&&d.ok)add('telegram',true,'connected','Telegram Bot API متصل');
+      else add('telegram',false,'failed',String(d?.description||'Telegram API failed').slice(0,500),false);
+    }
+  }catch(e){add('telegram',false,'failed',e.message,false)}
+  try{
+    const google=await integrationSecret(userId,'google');
+    const oauth=await integrationSecret(userId,'google_oauth');
+    if(!google?.refresh_token&&!google?.access_token)add('google',false,'not_connected','Google غير مربوط',false);
+    else add('google',true,'connected','Google token موجود');
+    if(!oauth?.client_id&&!process.env.GOOGLE_CLIENT_ID)add('google_oauth_config',false,'not_configured','بيانات Google OAuth ناقصة',false);
+    else add('google_oauth_config',true,'configured','إعداد OAuth موجود');
+  }catch(e){add('google',false,'failed',e.message,false)}
+  try{
+    const failed=await db.prepare("SELECT COUNT(*) AS n FROM agent_runs WHERE user_id=? AND status IN ('failed','needs_review') AND started_at>NOW()-INTERVAL '24 hours'").get(userId);
+    const pending=await db.prepare("SELECT COUNT(*) AS n FROM approvals WHERE user_id=? AND status='pending'").get(userId);
+    const due=await db.prepare("SELECT COUNT(*) AS n FROM tasks WHERE user_id=? AND status='planned' AND due_at IS NOT NULL AND due_at<=?").get(userId,now());
+    add('agent_runtime',Number(failed.n)===0,'runtime',`failed_runs_24h=${Number(failed.n)}, pending_approvals=${Number(pending.n)}, due_tasks=${Number(due.n)}`,Number(failed.n)>0);
+  }catch(e){add('agent_runtime',false,'failed',e.message,true)}
+  const bad=checks.filter(x=>!x.ok);
+  return {healthy:bad.length===0,checked_at:now(),checks,summary:bad.length?('هناك '+bad.length+' مشكلة تحتاج معالجة أو تدخل'): 'كل الفحوصات الأساسية سليمة'};
+}
+async function repairSystem(userId){
+  const actions=[];
+  try{
+    await db.prepare(`CREATE TABLE IF NOT EXISTS whatsapp_messages(
+      id TEXT PRIMARY KEY,user_id TEXT NOT NULL,direction TEXT NOT NULL,contact TEXT NOT NULL,message TEXT NOT NULL,
+      external_message_id TEXT,message_type TEXT,status TEXT NOT NULL DEFAULT 'sent',error TEXT,created_at timestamptz NOT NULL
+    )`).run();
+    await db.prepare('CREATE INDEX IF NOT EXISTS idx_whatsapp_messages_user_created ON whatsapp_messages(user_id,created_at DESC)').run();
+    await db.prepare('CREATE INDEX IF NOT EXISTS idx_whatsapp_messages_user_direction ON whatsapp_messages(user_id,direction,created_at DESC)').run();
+    actions.push({action:'database_schema_repair',ok:true});
+  }catch(e){actions.push({action:'database_schema_repair',ok:false,error:e.message})}
+  try{
+    const stuck=await db.prepare("UPDATE tasks SET status='failed',result=CASE WHEN COALESCE(result,'')='' THEN 'تم إيقاف مهمة عالقة تلقائياً أثناء الفحص الذاتي' ELSE result END,updated_at=? WHERE user_id=? AND status='running' AND updated_at<?").run(now(),userId,new Date(Date.now()-6*60*60*1000).toISOString());
+    actions.push({action:'stale_task_cleanup',ok:true,changed:Number(stuck?.changes||0)});
+  }catch(e){actions.push({action:'stale_task_cleanup',ok:false,error:e.message})}
+  const diagnosis=await diagnoseSystem(userId);
+  return {ok:diagnosis.healthy,actions,diagnosis};
+}
+\nconst tools=[
  {type:'web_search'},
  {type:'function',name:'create_task',description:'Create a persistent task.',parameters:{type:'object',properties:{title:{type:'string'},goal:{type:'string'},priority:{type:'integer',minimum:1,maximum:10},due_at:{type:'string'}},required:['title','goal']}},
  {type:'function',name:'add_task_step',description:'Add a step to a task.',parameters:{type:'object',properties:{task_id:{type:'string'},action:{type:'string'}},required:['task_id','action']}},
@@ -89,6 +155,8 @@ const tools=[
  {type:'function',name:'create_goal',description:'Create a goal, optionally attached to a project.',parameters:{type:'object',properties:{project_id:{type:'string'},title:{type:'string'},description:{type:'string'},priority:{type:'integer',minimum:1,maximum:10},target_at:{type:'string'}},required:['title']}},
  {type:'function',name:'list_goals',description:'List goals, optionally by project or status.',parameters:{type:'object',properties:{project_id:{type:'string'},status:{type:'string'}},required:[]}},
  {type:'function',name:'get_agent_health',description:'Inspect Antonio health: recent failed runs, pending approvals, due tasks, active schedules.',parameters:{type:'object',properties:{},required:[]}},
+ {type:'function',name:'diagnose_system',description:'افحص اتصال Antonio وخدماته وتكاملاته واكتشف المشاكل مع سببها.',parameters:{type:'object',properties:{},required:[]}},
+ {type:'function',name:'repair_system',description:'نفذ إصلاحات آمنة تلقائياً للمشاكل البرمجية وقاعدة البيانات والمهام العالقة، ثم أعد الفحص. لا يخمن أو يغيّر أسراراً.',parameters:{type:'object',properties:{},required:[]}},
  {type:'function',name:'request_approval',description:'Request approval before consequential external action.',parameters:{type:'object',properties:{task_id:{type:'string'},action:{type:'string'},payload:{type:'object'}},required:['action','payload']}},
  {type:'function',name:'send_email',description:'Send Gmail message; approval is required.',parameters:{type:'object',properties:{to:{type:'string'},subject:{type:'string'},text:{type:'string'}},required:['to','subject','text']}},
  {type:'function',name:'list_email',description:'List Gmail message IDs matching a search. Use read_email to read the actual message contents.',parameters:{type:'object',properties:{query:{type:'string'}},required:[]}},
@@ -133,6 +201,8 @@ async function tool(name,a,userId,runId,{skipApproval=false,taskId=null}={}){
   if(name==='list_projects')return a.status?db.prepare('SELECT * FROM projects WHERE user_id=? AND status=? ORDER BY updated_at DESC').all(userId,a.status):db.prepare('SELECT * FROM projects WHERE user_id=? ORDER BY updated_at DESC').all(userId);
   if(name==='create_goal'){const title=String(a.title||'').trim();if(!title)return{error:'goal title required'};if(a.project_id&&!await db.prepare('SELECT id FROM projects WHERE id=? AND user_id=?').get(a.project_id,userId))return{error:'project not found'};const x=id();const t=now();await db.prepare('INSERT INTO goals(id,user_id,project_id,title,description,status,priority,target_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)').run(x,userId,a.project_id||null,title,String(a.description||''),'active',a.priority??5,a.target_at||null,t,t);return{goal_id:x,status:'active'}}
   if(name==='list_goals'){if(a.project_id)return db.prepare('SELECT * FROM goals WHERE user_id=? AND project_id=? ORDER BY priority DESC,updated_at DESC').all(userId,a.project_id);if(a.status)return db.prepare('SELECT * FROM goals WHERE user_id=? AND status=? ORDER BY priority DESC,updated_at DESC').all(userId,a.status);return db.prepare('SELECT * FROM goals WHERE user_id=? ORDER BY priority DESC,updated_at DESC').all(userId);}
+  if(name==='diagnose_system'){return diagnoseSystem(userId);}
+  if(name==='repair_system'){return repairSystem(userId);}
   if(name==='get_agent_health'){const failed=await db.prepare("SELECT COUNT(*) AS n FROM agent_runs WHERE user_id=? AND status IN ('failed','needs_review') AND started_at>NOW()-INTERVAL '24 hours'").get(userId);const pending=await db.prepare("SELECT COUNT(*) AS n FROM approvals WHERE user_id=? AND status='pending'").get(userId);const due=await db.prepare("SELECT COUNT(*) AS n FROM tasks WHERE user_id=? AND status='planned' AND due_at IS NOT NULL AND due_at<=?").get(userId,now());const active=await db.prepare("SELECT COUNT(*) AS n FROM schedules WHERE user_id=? AND enabled=TRUE").get(userId);return{healthy:Number(failed.n)===0,failed_runs_24h:Number(failed.n),pending_approvals:Number(pending.n),due_tasks:Number(due.n),active_schedules:Number(active.n)}}
   if(name==='request_approval'){const gate=await requireApproval(userId,a.action,a.payload,a.task_id||taskId);return gate.approval_required?gate:{approval_required:false,auto_approved:true,status:'auto'};}
   if(approvalMap[name]&&!skipApproval){const gate=await requireApproval(userId,approvalMap[name],a,taskId);if(gate.approval_required)return gate}
@@ -163,7 +233,7 @@ async function runAgent({conversationId,input,userId,taskId=null,inputContent=nu
   const planId=id();
   await db.prepare('INSERT INTO agent_plans(id,run_id,user_id,goal,plan_json,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)').run(planId,runId,userId,String(plan.goal||input),JSON.stringify(plan),'active',start,start);
   for(let i=0;i<(plan.steps||[]).length;i++){const s=plan.steps[i];await db.prepare('INSERT INTO agent_steps(id,plan_id,step_no,step_key,action,tool_hint,verification,status,output) VALUES(?,?,?,?,?,?,?,?,?)').run(id(),planId,i+1,String(s.id||('step-'+(i+1))),String(s.action||''),s.tool_hint?String(s.tool_hint):null,s.verification?String(s.verification):null,'pending','')}
-  const system=`You are Antonio, an autonomous personal digital agent. Plan, execute, verify, and report. Never claim an external action succeeded unless the integration returned success. Consequential external actions require approval. Use web search for current public information. Persist durable facts in memory. Break complex work into tasks and steps. Always reply in authentic natural Iraqi Arabic (Baghdadi/عراقي) by default. Speak like a young Iraqi from Baghdad: use natural Iraqi words such as شنو، شلون، هسه، أكو، ماكو، أريد، راح، وياك when appropriate. Avoid Modern Standard Arabic and avoid Gulf/Levantine phrasing unless the user explicitly asks for another dialect or language. Keep normal conversational replies short and direct; answer immediately without unnecessary introductions or repetition. Durable memory: ${JSON.stringify(await memory(userId))}`;
+  const system=`You are Antonio, an autonomous personal digital agent. Plan, execute, verify, and report. You can diagnose your own integrations and runtime with diagnose_system, and you should use repair_system when the problem is safely repairable. Never claim a repair or external action succeeded unless the tool result confirms it. Never claim an external action succeeded unless the integration returned success. Consequential external actions require approval. Use web search for current public information. Persist durable facts in memory. Break complex work into tasks and steps. Always reply in authentic natural Iraqi Arabic (Baghdadi/عراقي) by default. Speak like a young Iraqi from Baghdad: use natural Iraqi words such as شنو، شلون، هسه، أكو، ماكو، أريد، راح، وياك when appropriate. Avoid Modern Standard Arabic and avoid Gulf/Levantine phrasing unless the user explicitly asks for another dialect or language. Keep normal conversational replies short and direct; answer immediately without unnecessary introductions or repetition. Durable memory: ${JSON.stringify(await memory(userId))}`;
   let items=[{role:'system',content:system+'\nExecution plan: '+JSON.stringify(plan)},...recentHistory];if(inputContent&&items.length>1&&items[items.length-1].role==='user')items[items.length-1]={role:'user',content:inputContent};
   try{
     const toolResults=[];
@@ -338,6 +408,8 @@ app.get('/api/notifications',async(req,res)=>{const rows=await db.prepare("SELEC
 app.get('/api/push/vapid-public-key',auth,(req,res)=>{if(!VAPID_PUBLIC_KEY)return res.status(503).json({error:'push notifications are not configured'});res.json({publicKey:VAPID_PUBLIC_KEY})});
 app.post('/api/push/subscribe',auth,async(req,res)=>{if(!VAPID_PUBLIC_KEY||!VAPID_PRIVATE_KEY)return res.status(503).json({error:'push notifications are not configured'});const s=req.body?.subscription;if(!s?.endpoint||!s?.keys?.p256dh||!s?.keys?.auth)return res.status(400).json({error:'invalid push subscription'});await db.prepare('INSERT INTO push_subscriptions(id,user_id,endpoint,p256dh,auth,created_at,updated_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(user_id,endpoint) DO UPDATE SET p256dh=excluded.p256dh,auth=excluded.auth,updated_at=excluded.updated_at').run(id(),req.user.id,s.endpoint,s.keys.p256dh,s.keys.auth,now(),now());res.json({ok:true})});
 app.delete('/api/push/subscribe',auth,async(req,res)=>{const endpoint=String(req.body?.endpoint||'');if(endpoint)await db.prepare('DELETE FROM push_subscriptions WHERE user_id=? AND endpoint=?').run(req.user.id,endpoint);else await db.prepare('DELETE FROM push_subscriptions WHERE user_id=?').run(req.user.id);res.json({ok:true})});
+app.get('/api/agent/diagnose',async(req,res)=>{try{res.json(await diagnoseSystem(req.user.id))}catch(e){res.status(500).json({healthy:false,error:e.message})}});
+app.post('/api/agent/repair',async(req,res)=>{try{res.json(await repairSystem(req.user.id))}catch(e){res.status(500).json({ok:false,error:e.message})}});
 app.get('/api/agent/health',async(req,res)=>{const failed=await db.prepare("SELECT COUNT(*) AS n FROM agent_runs WHERE user_id=? AND status IN ('failed','needs_review') AND started_at>NOW()-INTERVAL '24 hours'").get(req.user.id);const pending=await db.prepare("SELECT COUNT(*) AS n FROM approvals WHERE user_id=? AND status='pending'").get(req.user.id);const due=await db.prepare("SELECT COUNT(*) AS n FROM tasks WHERE user_id=? AND status='planned' AND due_at IS NOT NULL AND due_at<=?").get(req.user.id,now());const active=await db.prepare("SELECT COUNT(*) AS n FROM schedules WHERE user_id=? AND enabled=TRUE").get(req.user.id);res.json({healthy:Number(failed.n)===0,failed_runs_24h:Number(failed.n),pending_approvals:Number(pending.n),due_tasks:Number(due.n),active_schedules:Number(active.n),checked_at:now()})});
 app.get('/api/stats',async(req,res)=>{const u=req.user.id;const [tasks,mem,pending,schedules,runs]=await Promise.all([db.prepare('SELECT COUNT(*) AS n FROM tasks WHERE user_id=?').get(u),db.prepare('SELECT COUNT(*) AS n FROM memories WHERE user_id=?').get(u),db.prepare("SELECT COUNT(*) AS n FROM approvals WHERE user_id=? AND status='pending'").get(u),db.prepare('SELECT COUNT(*) AS n FROM schedules WHERE user_id=? AND enabled=TRUE').get(u),db.prepare('SELECT COUNT(*) AS n FROM agent_runs WHERE user_id=?').get(u)]);res.json({tasks:Number(tasks.n),memories:Number(mem.n),pending_approvals:Number(pending.n),schedules:Number(schedules.n),runs:Number(runs.n)})});
 
