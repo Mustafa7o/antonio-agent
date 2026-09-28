@@ -485,8 +485,6 @@ app.post('/webhook',async(req,res)=>{
       const cid=conversation.id, incomingText=text||('وصلت رسالة WhatsApp من النوع: '+type);
       // Preserve the exact Meta message so unsupported payloads can be inspected and parsed safely.
       const rawPayload=JSON.stringify(msg);
-      // Keep the exact inbound Meta message for unsupported-message debugging/extraction.
-      const rawPayload=JSON.stringify(msg);
       const saved=JSON.stringify({__antonio_message:true,text:incomingText,whatsapp_message_id:messageId,whatsapp_from:from,whatsapp_type:type});
       await db.prepare('INSERT INTO messages(id,conversation_id,user_id,role,content,created_at) VALUES(?,?,?,?,?,?)').run(id(),cid,userId,'user',saved,t);
       await db.prepare('INSERT INTO whatsapp_messages(id,user_id,direction,contact,message,external_message_id,message_type,status,error,created_at,status_updated_at,raw_payload) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)').run(id(),userId,'inbound',from,incomingText,messageId,type,'received',null,t,t,rawPayload);
