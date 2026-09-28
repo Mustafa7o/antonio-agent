@@ -134,7 +134,7 @@ async function diagnoseSystem(userId){
       add('google','not_connected',{oauth_configured:oauthConfigured,authenticated:false});
     }else{
       let gmailTest=null;
-      try{gmailTest=await gmailList('',google); }catch(e){gmailTest={error:e.message};}
+      try{gmailTest=await gmailList(google,''); }catch(e){gmailTest={error:e.message};}
       if(gmailTest?.error)add('google',/401|unauth|invalid_grant|expired/i.test(String(gmailTest.error))?'auth_error':'error',{oauth_configured:oauthConfigured,authenticated:false,error:safe(gmailTest.error)});
       else add('google','healthy',{oauth_configured:oauthConfigured,authenticated:true,gmail_test:true});
     }
