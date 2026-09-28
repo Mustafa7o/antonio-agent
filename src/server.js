@@ -494,7 +494,7 @@ app.post('/webhook',async(req,res)=>{
       await db.prepare('UPDATE conversations SET updated_at=? WHERE id=? AND user_id=?').run(now(),cid,userId);
       try{
         const replyText=String(answer||'');
-        const sent=await whatsappSend(from,replyText,cfg||{});
+        const sendCfg={...(cfg||{}),access_token:process.env.WHATSAPP_ACCESS_TOKEN||process.env.WHATSAPP_TOKEN||cfg?.access_token,phone_number_id:process.env.WHATSAPP_PHONE_NUMBER_ID||process.env.PHONE_NUMBER_ID||cfg?.phone_number_id,api_version:process.env.WHATSAPP_API_VERSION||cfg?.api_version||'v23.0'};const sent=await whatsappSend(from,replyText,sendCfg);
         const wamid=sent?.messages?.[0]?.id||null;
         await db.prepare('INSERT INTO whatsapp_messages(id,user_id,direction,contact,message,external_message_id,message_type,status,error,created_at,status_updated_at,raw_payload) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)').run(id(),userId,'outbound',from,replyText,wamid,'text','sent',null,now(),now());
         await audit(userId,'whatsapp_reply_sent',{to:from,message_id:messageId,wamid});
