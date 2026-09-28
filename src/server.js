@@ -76,9 +76,10 @@ async function auth(req,res,next){
 }
 
 
+const safeText=(v,n=700)=>String(v??'').replace(/\\s+/g,' ').slice(0,n);
+
 async function diagnoseSystem(userId){
   const checks=[];
-  const safe=(v,n=700)=>String(v??'').replace(/\\s+/g,' ').slice(0,n);
   const add=(name,status,details={},repairable=false)=>checks.push({
     name,status,
     ok:status==='healthy',
@@ -93,13 +94,13 @@ async function diagnoseSystem(userId){
     const required=['agent_runs','tasks','approvals','integration_tokens','whatsapp_messages','correspondence','tool_runs'];
     const missing=required.filter(x=>!present.has(x));
     add('database',missing.length?'degraded':'healthy',{connectivity:true,missing_tables:missing},missing.length>0);
-  }catch(e){add('database','error',{error:safe(e.message)},true)}
+  }catch(e){add('database','error',{error:safeText(e.message)},true)}
 
   if(!openai)add('openai','not_configured',{reason:'OPENAI_API_KEY غير مضبوط'});
   else try{
     const x=await openai.models.list();
     add('openai','healthy',{authenticated:true,model_count:Array.isArray(x?.data)?x.data.length:null});
-  }catch(e){add('openai','auth_error',{error:safe(e.message)},false)}
+  }catch(e){add('openai','auth_error',{error:safeText(e.message)},false)}
 
   try{
     const cfg=await integrationSecret(userId,'whatsapp_config');
@@ -111,9 +112,9 @@ async function diagnoseSystem(userId){
       const rr=await fetch('https://graph.facebook.com/'+version+'/'+encodeURIComponent(phone)+'?fields=id,display_phone_number,verified_name',{headers:{Authorization:'Bearer '+token}});
       const raw=await rr.text();let d={};try{d=JSON.parse(raw)}catch{}
       if(rr.ok)add('whatsapp','healthy',{authenticated:true,phone_number_id:d?.id||phone,display_phone_number:d?.display_phone_number||null,verified_name:d?.verified_name||null});
-      else add('whatsapp',rr.status===401||rr.status===403?'auth_error':'error',{http_status:rr.status,error:safe(d?.error?.message||raw)},false);
+      else add('whatsapp',rr.status===401||rr.status===403?'auth_error':'error',{http_status:rr.status,error:safeText(d?.error?.message||raw)},false);
     }
-  }catch(e){add('whatsapp','error',{error:safe(e.message)},false)}
+  }catch(e){add('whatsapp','error',{error:safeText(e.message)},false)}
 
   try{
     const tg=await integrationSecret(userId,'telegram_config');
@@ -122,9 +123,9 @@ async function diagnoseSystem(userId){
       const rr=await fetch('https://api.telegram.org/bot'+tg.bot_token+'/getMe');
       const d=await rr.json().catch(()=>({}));
       if(rr.ok&&d.ok)add('telegram','healthy',{authenticated:true,bot_username:d?.result?.username||null});
-      else add('telegram',rr.status===401||rr.status===403?'auth_error':'error',{http_status:rr.status,error:safe(d?.description||'Telegram API failed')});
+      else add('telegram',rr.status===401||rr.status===403?'auth_error':'error',{http_status:rr.status,error:safeText(d?.description||'Telegram API failed')});
     }
-  }catch(e){add('telegram','error',{error:safe(e.message)})}
+  }catch(e){add('telegram','error',{error:safeText(e.message)})}
 
   try{
     const google=await integrationSecret(userId,'google');
@@ -135,25 +136,29 @@ async function diagnoseSystem(userId){
     }else{
       let gmailTest=null;
       try{gmailTest=await gmailList(google,''); }catch(e){gmailTest={error:e.message};}
-      if(gmailTest?.error)add('google',/401|unauth|invalid_grant|expired/i.test(String(gmailTest.error))?'auth_error':'error',{oauth_configured:oauthConfigured,authenticated:false,error:safe(gmailTest.error)});
+      if(gmailTest?.error)add('google',/401|unauth|invalid_grant|expired/i.test(String(gmailTest.error))?'auth_error':'error',{oauth_configured:oauthConfigured,authenticated:false,error:safeText(gmailTest.error)});
       else add('google','healthy',{oauth_configured:oauthConfigured,authenticated:true,gmail_test:true});
     }
-  }catch(e){add('google','error',{error:safe(e.message)})}
+  }catch(e){add('google','error',{error:safeText(e.message)})}
 
   try{
-    const failed=await db.prepare("SELECT COUNT(*) AS n FROM agent_runs WHERE user_id=? AND status IN ('failed','needs_review') AND started_at>NOW()-INTERVAL '24 hours'").get(userId);
-    const groups=await db.prepare("SELECT COALESCE(NULLIF(TRIM(error),''),'unknown_error') AS error, COUNT(*) AS n FROM agent_runs WHERE user_id=? AND status IN ('failed','needs_review') AND started_at>NOW()-INTERVAL '24 hours' GROUP BY 1 ORDER BY n DESC LIMIT 8").all(userId);
+    const failed=await db.prepare("SELECT COUNT(*) AS n FROM agent_runs WHERE user_id=? AND status='failed' AND started_at>NOW()-INTERVAL '24 hours'").get(userId);
+    const review=await db.prepare("SELECT COUNT(*) AS n FROM agent_runs WHERE user_id=? AND status='needs_review' AND started_at>NOW()-INTERVAL '24 hours'").get(userId);
+    const groups=await db.prepare("SELECT COALESCE(NULLIF(TRIM(error),''),'no_error_recorded') AS error, COUNT(*) AS n FROM agent_runs WHERE user_id=? AND status='failed' AND started_at>NOW()-INTERVAL '24 hours' GROUP BY 1 ORDER BY n DESC LIMIT 8").all(userId);
+    const recentFailures=await db.prepare("SELECT id,status,error,started_at,finished_at FROM agent_runs WHERE user_id=? AND status IN ('failed','needs_review') AND started_at>NOW()-INTERVAL '24 hours' ORDER BY started_at DESC LIMIT 10").all(userId);
     const pending=await db.prepare("SELECT COUNT(*) AS n FROM approvals WHERE user_id=? AND status='pending'").get(userId);
     const due=await db.prepare("SELECT COUNT(*) AS n FROM tasks WHERE user_id=? AND status='planned' AND due_at IS NOT NULL AND due_at<=?").get(userId,now());
     const running=await db.prepare("SELECT COUNT(*) AS n FROM tasks WHERE user_id=? AND status='running'").get(userId);
-    add('agent_runtime',Number(failed.n)>0?'degraded':'healthy',{
+    add('agent_runtime',(Number(failed.n)>0||Number(review.n)>0)?'degraded':'healthy',{
       failed_runs_24h:Number(failed.n),
-      failure_categories:groups.map(x=>({error:safe(x.error,300),count:Number(x.n)})),
+      needs_review_runs_24h:Number(review.n),
+      failure_categories:groups.map(x=>({error:safeText(x.error,300),count:Number(x.n)})),
+      recent_failures:recentFailures.map(x=>({id:x.id,status:x.status,error:safeText(x.error,500),started_at:x.started_at,finished_at:x.finished_at})),
       pending_approvals:Number(pending.n),
       due_tasks:Number(due.n),
       running_tasks:Number(running.n)
-    },Number(failed.n)>0);
-  }catch(e){add('agent_runtime','error',{error:safe(e.message)},true)}
+    },Number(failed.n)>0||Number(review.n)>0);
+  }catch(e){add('agent_runtime','error',{error:safeText(e.message)},true)}
 
   const bad=checks.filter(x=>x.status!=='healthy');
   const repairable=checks.filter(x=>x.repairable&&x.status!=='healthy');
@@ -176,11 +181,11 @@ async function repairSystem(userId){
     await db.prepare('CREATE INDEX IF NOT EXISTS idx_whatsapp_messages_user_created ON whatsapp_messages(user_id,created_at DESC)').run();
     await db.prepare('CREATE INDEX IF NOT EXISTS idx_whatsapp_messages_user_direction ON whatsapp_messages(user_id,direction,created_at DESC)').run();
     actions.push({action:'database_schema_repair',ok:true});
-  }catch(e){actions.push({action:'database_schema_repair',ok:false,error:safe(e.message)})}
+  }catch(e){actions.push({action:'database_schema_repair',ok:false,error:safeText(e.message)})}
   try{
     const stuck=await db.prepare("UPDATE tasks SET status='failed',result=CASE WHEN COALESCE(result,'')='' THEN 'تم إيقاف مهمة عالقة تلقائياً أثناء الفحص الذاتي' ELSE result END,updated_at=? WHERE user_id=? AND status='running' AND updated_at<?").run(now(),userId,new Date(Date.now()-6*60*60*1000).toISOString());
     actions.push({action:'stale_task_cleanup',ok:true,changed:Number(stuck?.changes||0)});
-  }catch(e){actions.push({action:'stale_task_cleanup',ok:false,error:safe(e.message)})}
+  }catch(e){actions.push({action:'stale_task_cleanup',ok:false,error:safeText(e.message)})}
   const after=await diagnoseSystem(userId);
   const remaining=after.checks.filter(x=>x.status!=='healthy').map(x=>({name:x.name,status:x.status,details:x.details}));
   return {
