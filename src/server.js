@@ -455,7 +455,27 @@ app.post('/webhook',async(req,res)=>{
         if(type==='location'){const lat=msg.location?.latitude,lon=msg.location?.longitude;return (lat!=null&&lon!=null)?'موقع: '+lat+', '+lon:'';}
         if(type==='contacts')return 'تم استلام جهة اتصال';
         if(type==='reaction')return String(msg.reaction?.emoji||'').trim();
-        return '';
+        // Some WhatsApp/Meta messages (including verification-code messages) arrive as unsupported.
+        // Inspect the raw message for an embedded code/text instead of discarding it.
+        try{
+          const raw=JSON.stringify(msg);
+          const keyed=[];
+          const walk=(v,key='')=>{
+            if(v==null)return;
+            if(typeof v==='string'){
+              const str=v.trim();
+              if(str&&/(code|otp|verification|verify|رمز|تحقق)/i.test(key))keyed.push(str);
+              return;
+            }
+            if(Array.isArray(v)){for(const x of v)walk(x,key);return;}
+            if(typeof v==='object')for(const [k,x] of Object.entries(v))walk(x,k);
+          };
+          walk(msg);
+          const preferred=keyed.find(v=>/\\b\\d{4,8}\\b/.test(v))||keyed[0]||'';
+          if(preferred){const code=preferred.match(/\\b\\d{4,8}\\b/);return code?'رمز التحقق: '+code[0]:preferred.slice(0,1000);}
+          const codes=[...raw.matchAll(/(?<!\\d)\\d{4,8}(?!\\d)/g)].map(m=>m[0]);
+          return codes.length?'رمز التحقق: '+codes[0]:'';
+        }catch{return '';}
       })();
       if(!messageId||!from)continue;
       const duplicate=await db.prepare("SELECT id FROM messages WHERE user_id=? AND content LIKE ? LIMIT 1").get(userId,'%\"whatsapp_message_id\":\"'+messageId+'\"%');
