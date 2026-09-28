@@ -483,6 +483,8 @@ app.post('/webhook',async(req,res)=>{
       const title='WhatsApp: '+from; let conversation=await db.prepare('SELECT id FROM conversations WHERE user_id=? AND title=? ORDER BY updated_at DESC LIMIT 1').get(userId,title);
       const t=now(); if(!conversation){const cid=id();await db.prepare('INSERT INTO conversations(id,user_id,title,created_at,updated_at) VALUES(?,?,?,?,?)').run(cid,userId,title,t,t);conversation={id:cid};}
       const cid=conversation.id, incomingText=text||('وصلت رسالة WhatsApp من النوع: '+type);
+      // Preserve the exact Meta message so unsupported payloads can be inspected and parsed safely.
+      const rawPayload=JSON.stringify(msg);
       // Keep the exact inbound Meta message for unsupported-message debugging/extraction.
       const rawPayload=JSON.stringify(msg);
       const saved=JSON.stringify({__antonio_message:true,text:incomingText,whatsapp_message_id:messageId,whatsapp_from:from,whatsapp_type:type});
@@ -496,7 +498,7 @@ app.post('/webhook',async(req,res)=>{
         const replyText=String(answer||'');
         const sent=await whatsappSend(from,replyText,cfg||{});
         const wamid=sent?.messages?.[0]?.id||null;
-        await db.prepare('INSERT INTO whatsapp_messages(id,user_id,direction,contact,message,external_message_id,message_type,status,error,created_at,status_updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)').run(id(),userId,'outbound',from,replyText,wamid,'text','sent',null,now(),now());
+        await db.prepare('INSERT INTO whatsapp_messages(id,user_id,direction,contact,message,external_message_id,message_type,status,error,created_at,status_updated_at,raw_payload) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)').run(id(),userId,'outbound',from,replyText,wamid,'text','sent',null,now(),now());
         await audit(userId,'whatsapp_reply_sent',{to:from,message_id:messageId,wamid});
         console.log('WhatsApp reply accepted by Meta',{to:from,wamid});
       }catch(e){
