@@ -1,1 +1,1 @@
-{"name":"harfha-game","version":"1.0.0","private":true,"type":"module","scripts":{"start":"node server.js"},"engines":{"node":">=20"}}
+{"name":"harfha-game","version":"1.0.0","private":true,"type":"module","scripts":{"start":"node server-new.js"},"engines":{"node":">=20"}}
